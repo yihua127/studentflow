@@ -1,0 +1,34 @@
+{
+  "timezone": "Asia/Singapore",
+  "study_start": "08:00",
+  "study_end": "22:00",
+  "daily_limit_minutes": 360,
+  "meals": [
+    {
+      "start": "08:00",
+      "end": "08:30"
+    },
+    {
+      "start": "11:30",
+      "end": "12:00"
+    },
+    {
+      "start": "17:30",
+      "end": "18:00"
+    }
+  ],
+  "default_commute_minutes": 40,
+  "max_block_minutes": 120,
+  "break_minutes": 30,
+  "buffer_minutes": 0,
+  "assumptions": [
+    "The study window, meal periods and daily study limit are configurable demonstration defaults. Classes, meals and travel do not count toward study minutes.",
+    "Available study slots must be provided explicitly. A blank calendar is not evidence of availability. Scenarios A and B use fictional slots.",
+    "The 120-minute block limit and 30-minute break are configurable development defaults.",
+    "Finishing 24 hours early is a soft preference. A zero buffer does not impose an earlier hard deadline; work must still finish by its stated deadline.",
+    "A 40-minute one-way commute is an editable estimate that includes a provisional buffer. Online events do not require travel. No map service has verified this duration.",
+    "Do not add another travel buffer unless the user explicitly configures one.",
+    "Review travel, late returns and meal conflicts separately. The study window is not an arrival-home deadline.",
+    "The published scenario dates, event times and locations are fully fictional. Replace them with reviewed inputs before planning a real schedule."
+  ]
+}

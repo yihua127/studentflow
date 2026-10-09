@@ -1,0 +1,62 @@
+# Local Python environments and generated files
+.venv/
+.venv.incomplete/
+.uv-cache/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# Real credentials must stay on the local computer.
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+secrets/
+credentials/
+credentials*.json
+client_secret*.json
+oauth_client*.json
+token.json
+token_*.json
+tokens.json
+*token_cache*
+*token-cache*
+msal_cache*
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Emails, attachments, saved tasks and local exports
+data/
+local_data/
+downloads/
+exports/
+logs/
+*.log
+*.eml
+*.msg
+*.mbox
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.sqlite-*
+*.db
+*.db-*
+group work/
+StudentFlow_B_Email_Pack/
+answers/
+manifest.json
+
+# Operating-system/editor state
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

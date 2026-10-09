@@ -1,0 +1,198 @@
+{
+  "A": {
+    "label": "Scenario A: more available study time (fictional example)",
+    "start_date": "2030-01-07",
+    "end_date": "2030-01-12",
+    "available_slots": [
+      {
+        "start": "2030-01-07T09:00:00+08:00",
+        "end": "2030-01-07T11:00:00+08:00"
+      },
+      {
+        "start": "2030-01-07T13:00:00+08:00",
+        "end": "2030-01-07T16:00:00+08:00"
+      },
+      {
+        "start": "2030-01-08T09:00:00+08:00",
+        "end": "2030-01-08T11:00:00+08:00"
+      },
+      {
+        "start": "2030-01-08T13:00:00+08:00",
+        "end": "2030-01-08T16:00:00+08:00"
+      },
+      {
+        "start": "2030-01-09T09:00:00+08:00",
+        "end": "2030-01-09T11:00:00+08:00"
+      },
+      {
+        "start": "2030-01-09T13:00:00+08:00",
+        "end": "2030-01-09T16:00:00+08:00"
+      },
+      {
+        "start": "2030-01-10T09:00:00+08:00",
+        "end": "2030-01-10T11:00:00+08:00"
+      },
+      {
+        "start": "2030-01-10T13:00:00+08:00",
+        "end": "2030-01-10T16:00:00+08:00"
+      },
+      {
+        "start": "2030-01-11T09:00:00+08:00",
+        "end": "2030-01-11T11:00:00+08:00"
+      },
+      {
+        "start": "2030-01-11T13:00:00+08:00",
+        "end": "2030-01-11T16:00:00+08:00"
+      }
+    ],
+    "busy_events": [
+      {
+        "start": "2030-01-07T16:00:00+08:00",
+        "end": "2030-01-07T17:00:00+08:00",
+        "title": "Sample seminar",
+        "mode": "onsite",
+        "location": "Room A",
+        "commute_minutes": 40
+      },
+      {
+        "start": "2030-01-08T14:00:00+08:00",
+        "end": "2030-01-08T15:00:00+08:00",
+        "title": "Sample workshop",
+        "mode": "onsite",
+        "location": "Room B",
+        "commute_minutes": 40
+      },
+      {
+        "start": "2030-01-09T10:30:00+08:00",
+        "end": "2030-01-09T11:30:00+08:00",
+        "title": "Sample team meeting",
+        "mode": "onsite",
+        "location": "Room C",
+        "commute_minutes": 40
+      },
+      {
+        "start": "2030-01-11T14:00:00+08:00",
+        "end": "2030-01-11T15:00:00+08:00",
+        "title": "Demo presentation",
+        "mode": "onsite",
+        "location": "Room D",
+        "commute_minutes": 40
+      },
+      {
+        "start": "2030-01-12T10:00:00+08:00",
+        "end": "2030-01-12T11:00:00+08:00",
+        "title": "Practice quiz",
+        "mode": "onsite",
+        "location": "Room E",
+        "commute_minutes": 40
+      }
+    ],
+    "tasks": [
+      {
+        "id": "A-INPUT-T1",
+        "title": "Sample written assignment",
+        "due_at": "2030-01-10T23:59:00+08:00",
+        "estimated_minutes": 240,
+        "status": "draft"
+      },
+      {
+        "id": "A-INPUT-T2",
+        "title": "Practice quiz revision",
+        "due_at": "2030-01-12T10:00:00+08:00",
+        "estimated_minutes": 180,
+        "status": "draft"
+      },
+      {
+        "id": "A-INPUT-T3",
+        "title": "Prepare and upload demo slides",
+        "due_at": "2030-01-11T12:00:00+08:00",
+        "estimated_minutes": 120,
+        "status": "draft"
+      }
+    ],
+    "warnings": [
+      "All dates, availability, events, rooms and tasks in this scenario are fictional development examples. They are not a real student timetable.",
+      "Only the explicitly listed available slots may be considered for study. Unlisted time is not assumed to be free.",
+      "Each on-site event uses a configurable 40-minute one-way commute estimate. This is a test default, not a verified route duration.",
+      "Check travel in both directions, adjacent events and meal conflicts. Do not silently move an event or a meal to resolve a conflict.",
+      "The study window, daily limit, block length and breaks are configurable example defaults. Travel may extend outside the study window.",
+      "Tasks start as drafts. Review deadlines and remaining work before confirming tasks, and review the proposed schedule before saving it."
+    ]
+  },
+  "B": {
+    "label": "Scenario B: limited available study time (fictional example)",
+    "start_date": "2030-01-10",
+    "end_date": "2030-01-12",
+    "available_slots": [
+      {
+        "start": "2030-01-10T09:00:00+08:00",
+        "end": "2030-01-10T10:00:00+08:00"
+      },
+      {
+        "start": "2030-01-10T13:00:00+08:00",
+        "end": "2030-01-10T14:00:00+08:00"
+      },
+      {
+        "start": "2030-01-11T09:00:00+08:00",
+        "end": "2030-01-11T10:00:00+08:00"
+      },
+      {
+        "start": "2030-01-11T15:30:00+08:00",
+        "end": "2030-01-11T16:30:00+08:00"
+      },
+      {
+        "start": "2030-01-12T08:30:00+08:00",
+        "end": "2030-01-12T09:30:00+08:00"
+      }
+    ],
+    "busy_events": [
+      {
+        "start": "2030-01-11T14:00:00+08:00",
+        "end": "2030-01-11T15:00:00+08:00",
+        "title": "Demo presentation",
+        "mode": "onsite",
+        "location": "Room D",
+        "commute_minutes": 40
+      },
+      {
+        "start": "2030-01-12T10:00:00+08:00",
+        "end": "2030-01-12T11:00:00+08:00",
+        "title": "Practice quiz",
+        "mode": "onsite",
+        "location": "Room E",
+        "commute_minutes": 40
+      }
+    ],
+    "tasks": [
+      {
+        "id": "B-INPUT-T1",
+        "title": "Sample written assignment",
+        "due_at": "2030-01-10T23:59:00+08:00",
+        "estimated_minutes": 360,
+        "status": "draft"
+      },
+      {
+        "id": "B-INPUT-T2",
+        "title": "Prepare and upload demo slides",
+        "due_at": "2030-01-11T12:00:00+08:00",
+        "estimated_minutes": 240,
+        "status": "draft"
+      },
+      {
+        "id": "B-INPUT-T3",
+        "title": "Practice quiz revision",
+        "due_at": "2030-01-12T10:00:00+08:00",
+        "estimated_minutes": 300,
+        "status": "draft"
+      }
+    ],
+    "warnings": [
+      "All dates, availability, events, rooms and tasks in this scenario are fictional development examples. They are not a real student timetable.",
+      "Only the explicitly listed available slots may be considered for study. Unlisted time is not assumed to be free.",
+      "Each on-site event uses a configurable 40-minute one-way commute estimate. This is a test default, not a verified route duration.",
+      "Check travel in both directions, adjacent events and meal conflicts. Do not silently move an event or a meal to resolve a conflict.",
+      "The study window, daily limit, block length and breaks are configurable example defaults. Travel may extend outside the study window.",
+      "Tasks start as drafts. Review deadlines and remaining work before confirming tasks, and review the proposed schedule before saving it."
+    ]
+  }
+}
