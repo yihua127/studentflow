@@ -38,6 +38,8 @@ in the body; otherwise estimated_minutes is null. A meeting's duration is not
 automatically the effort needed for a related assignment.
 List every ambiguity or assumption in needs_clarification. Confidence is your
 uncalibrated estimate between 0 and 1, not a verified accuracy measurement.
+Write task titles and needs_clarification in English. Preserve source_quote
+exactly as it appears in the email, including its original language.
 All outputs are proposals requiring human review. Return at most 50 tasks.
 """
 
@@ -63,18 +65,18 @@ def validate_extraction(payload: Any, body: str) -> dict:
     """
     warnings: list[str] = []
     if not isinstance(payload, dict) or not isinstance(payload.get("tasks"), list):
-        return {"tasks": [], "warnings": ["模型返回的任务结构无效，请重试或手动填写。"]}
+        return {"tasks": [], "warnings": ["The AI response could not be read. Try again or enter the task manually."]}
     raw_tasks = payload["tasks"]
     if len(raw_tasks) > MAX_TASKS:
-        warnings.append(f"单封邮件返回超过 {MAX_TASKS} 项任务，仅保留前 {MAX_TASKS} 项供核对。")
+        warnings.append(f"More than {MAX_TASKS} tasks were returned. Review the first {MAX_TASKS} tasks below.")
     tasks = []
     for index, raw in enumerate(raw_tasks[:MAX_TASKS], start=1):
         if not isinstance(raw, dict):
-            warnings.append(f"第 {index} 项不是有效任务，已跳过。")
+            warnings.append(f"Item {index} is not a valid task and was skipped.")
             continue
         title = raw.get("title")
         if not isinstance(title, str) or not title.strip():
-            warnings.append(f"第 {index} 项没有任务名称，已跳过。")
+            warnings.append(f"Item {index} has no task title and was skipped.")
             continue
         clarification = raw.get("needs_clarification", [])
         notes = (
@@ -85,19 +87,19 @@ def validate_extraction(payload: Any, body: str) -> dict:
         due_at = _aware_iso(raw.get("due_at"))
         if due_at is None:
             notes.append(
-                "截止时间缺失，请人工确认。"
+                "The deadline is missing. Enter and confirm it."
                 if raw.get("due_at") is None
-                else "模型给出的截止时间无效或缺少时区，已清空，请人工确认。"
+                else "The suggested deadline was invalid or had no timezone, so it was cleared. Enter and confirm it."
             )
         estimated = raw.get("estimated_minutes")
         if isinstance(estimated, bool) or not isinstance(estimated, int) or estimated <= 0:
             estimated = None
-            notes.append("任务所需时长未明确，请人工填写后再排程。")
+            notes.append("The estimated effort is unknown. Enter it before scheduling.")
         quote = raw.get("source_quote")
         valid_quote = isinstance(quote, str) and bool(quote.strip()) and quote in body
         if not valid_quote:
             quote = ""
-            notes.append("模型给出的原文依据在邮件正文中不存在，已清空；需核实是否确有该任务。")
+            notes.append("The supporting quote was not found in the email and was removed. Check that this task is required.")
         confidence = raw.get("confidence")
         if (
             isinstance(confidence, bool)
@@ -106,7 +108,7 @@ def validate_extraction(payload: Any, body: str) -> dict:
             or not 0 <= confidence <= 1
         ):
             confidence = 0.0
-            notes.append("模型置信度无效，已置为 0。")
+            notes.append("The confidence estimate was invalid and was reset to 0.")
         if not valid_quote:
             confidence = 0.0
         tasks.append(
@@ -138,22 +140,22 @@ def extract_tasks(
     contain sensitive request details.
     """
     if not isinstance(api_key, str) or not api_key.strip():
-        raise ValueError("尚未配置 API Key；可以继续使用本地邮件解析和排程功能。")
+        raise ValueError("AI extraction is not configured. Add an API Key in settings or enter tasks manually.")
     if not isinstance(model, str) or not model.strip():
-        raise ValueError("请先填写可用的 OpenAI API 模型名称。")
+        raise ValueError("Choose an available OpenAI model in settings.")
     if not isinstance(body, str) or not body.strip():
-        raise ValueError("邮件正文为空，请先检查邮件解析结果。")
+        raise ValueError("The message body is empty. Check the selected email.")
     if len(body) > MAX_BODY_CHARS:
-        raise ValueError("邮件正文过长，请先选择需要分析的部分。")
+        raise ValueError("The message body is too long. Select a shorter section to analyze.")
     if not isinstance(subject, str):
-        raise ValueError("邮件标题应为文本。")
+        raise ValueError("The email subject must be text.")
 
     # Keep optional compiled dependencies out of import-time and offline paths.
     try:
         from langchain_openai import ChatOpenAI
         from pydantic import BaseModel, ConfigDict, Field
     except (ImportError, OSError):
-        raise RuntimeError("模型依赖未能加载，请检查 LangChain 和 Pydantic 环境。") from None
+        raise RuntimeError("The AI components could not be loaded. Reinstall the app dependencies.") from None
 
     class TaskProposal(BaseModel):
         model_config = ConfigDict(extra="forbid")
@@ -203,10 +205,10 @@ def extract_tasks(
         payload = response.model_dump() if hasattr(response, "model_dump") else response
     except Exception:
         raise RuntimeError(
-            "模型调用未完成。请检查网络、API 余额、模型权限及结构化输出支持；未保存任何任务。"
+            "AI extraction failed. Check your connection, API balance, and model access. The selected model must support structured responses. No tasks were saved."
         ) from None
     result = validate_extraction(payload, body)
     if anchor is None:
-        result["warnings"].append("邮件发送时间缺失或无有效时区，无法可靠解析相对日期。")
-    result["warnings"].append("模型结果尚未经人工确认；置信度不代表已验证的准确率。")
+        result["warnings"].append("The sent time is missing or has no valid timezone. Relative dates need manual review.")
+    result["warnings"].append("Review all suggestions before saving. AI confidence is an estimate, not a verified accuracy score.")
     return result

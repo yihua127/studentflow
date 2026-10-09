@@ -21,23 +21,23 @@ DEFAULT_MEALS = [
 
 def _instant(value: Any) -> datetime:
     if not isinstance(value, str):
-        raise ValueError("时间必须是包含时区偏移量的 ISO 字符串")
+        raise ValueError("Times must include a timezone offset in ISO format.")
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise ValueError("时间缺少时区偏移量")
+        raise ValueError("The time has no timezone offset.")
     return parsed.astimezone(UTC)
 
 
 def _integer(value: Any, name: str, minimum: int = 0) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise ValueError(f"{name}必须是大于等于 {minimum} 的整数")
+        raise ValueError(f"{name} must be a whole number of at least {minimum}.")
     return value
 
 
 def _clock(value: Any) -> time:
     parsed = time.fromisoformat(value)
     if parsed.tzinfo is not None:
-        raise ValueError("每日时间应为本地 HH:MM，不包含时区")
+        raise ValueError("Daily times must use local HH:MM format without a timezone.")
     return parsed
 
 
@@ -75,7 +75,7 @@ def _subtract(intervals: list[Interval], exclusions: list[Interval]) -> list[Int
 def _interval(value: dict, label: str) -> Interval:
     start, end = _instant(value.get("start")), _instant(value.get("end"))
     if end <= start:
-        raise ValueError(f"{label}的结束时间必须晚于开始时间")
+        raise ValueError(f"{label} must end after it starts.")
     return start, end
 
 
@@ -98,29 +98,29 @@ def _context(available_slots: list[dict], busy_events: list[dict], settings: dic
     study_start = _clock(settings.get("study_start", "08:00"))
     study_end = _clock(settings.get("study_end", "22:00"))
     if study_end <= study_start:
-        raise ValueError("每日学习窗口必须在同一天内结束，且结束时间晚于开始时间")
+        raise ValueError("The daily study window must end after it starts on the same day.")
     # These bounds come from this project's supplied schedule policy.
     if study_start < time(8) or study_end > time(22):
-        raise ValueError("学习窗口必须位于 08:00—22:00 内")
-    daily_limit = _integer(settings.get("daily_limit_minutes", 360), "每日学习上限")
-    max_block = _integer(settings.get("max_block_minutes", 120), "单次学习上限", 1)
-    break_minutes = _integer(settings.get("break_minutes", 30), "学习段之间的休息", 30)
-    buffer_minutes = _integer(settings.get("buffer_minutes", 0), "建议提前量")
+        raise ValueError("Study hours must be between 08:00 and 22:00.")
+    daily_limit = _integer(settings.get("daily_limit_minutes", 360), "Daily study limit")
+    max_block = _integer(settings.get("max_block_minutes", 120), "Session duration limit", 1)
+    break_minutes = _integer(settings.get("break_minutes", 30), "Break between sessions", 30)
+    buffer_minutes = _integer(settings.get("buffer_minutes", 0), "Preferred deadline buffer")
     if daily_limit > 360 or max_block > 120:
-        raise ValueError("每日学习上限不可超过 360 分钟，单次学习不可超过 120 分钟")
+        raise ValueError("Study limits cannot exceed 360 minutes per day or 120 minutes per session.")
     default_commute = _integer(
-        settings.get("default_commute_minutes", 40), "默认单程通勤时长"
+        settings.get("default_commute_minutes", 40), "Default one-way commute"
     )
     manual_commute = settings.get("manual_commute_minutes")
     if manual_commute is not None:
-        manual_commute = _integer(manual_commute, "手动单程通勤时长")
+        manual_commute = _integer(manual_commute, "Custom one-way commute")
     now = _instant(settings["now"]) if settings.get("now") is not None else None
-    source_slots = _union([_interval(slot, "空闲时段") for slot in available_slots])
+    source_slots = _union([_interval(slot, "Available time") for slot in available_slots])
     meals = []
     for item in settings.get("meals", DEFAULT_MEALS):
         start, end = _clock(item["start"]), _clock(item["end"])
         if end <= start:
-            raise ValueError("用餐时段的结束时间必须晚于开始时间")
+            raise ValueError("A meal must end after it starts.")
         meals.append((start, end))
 
     allowed: list[Interval] = []
@@ -149,13 +149,13 @@ def _context(available_slots: list[dict], busy_events: list[dict], settings: dic
     sessions: list[dict] = []
     default_count = 0
     for event in busy_events:
-        start, end = _interval(event, "已有日程")
+        start, end = _interval(event, "Existing event")
         online = str(event.get("mode", "")).strip().lower() == "online"
         commute = event.get("commute_minutes")
         if online:
             commute = 0
         elif commute is not None:
-            commute = _integer(commute, "日程单程通勤时长")
+            commute = _integer(commute, "Event one-way commute")
         elif manual_commute is not None:
             commute = manual_commute
         else:
@@ -202,8 +202,8 @@ def _context(available_slots: list[dict], busy_events: list[dict], settings: dic
     warnings = []
     if default_count:
         warnings.append(
-            f"{default_count} 段日程未提供通勤时长，已按前后各 {default_commute} 分钟预留；"
-            "尚未查询真实路线。在线日程请明确标为 online。"
+            f"{default_count} event(s) have no commute estimate. {default_commute} minutes have been reserved before and after each event. "
+            "Travel time has not been checked against a route. Mark online events as Online to skip the commute."
         )
     return _Context(
         zone=zone,
@@ -221,21 +221,21 @@ def _context(available_slots: list[dict], busy_events: list[dict], settings: dic
 
 def _task_info(task: dict, duplicates: set[str]) -> tuple[str, str, int, datetime | None, str]:
     task_id = str(task.get("id") or "")
-    title = str(task.get("title") or "未命名任务")
+    title = str(task.get("title") or "Untitled task")
     estimate = task.get("estimated_minutes")
     minutes = estimate if isinstance(estimate, int) and not isinstance(estimate, bool) else 0
     if not task_id or task_id in duplicates:
-        return task_id, title, max(0, minutes), None, "任务编号缺失或重复，请先修正"
+        return task_id, title, max(0, minutes), None, "The task ID is missing or duplicated. Correct it before scheduling."
     if task.get("status") != "confirmed":
-        return task_id, title, max(0, minutes), None, "任务尚未确认，不能安排"
+        return task_id, title, max(0, minutes), None, "The task is not confirmed. Review and confirm it before scheduling."
     if minutes <= 0:
-        return task_id, title, 0, None, "请填写大于零的预计耗时（整数分钟）"
+        return task_id, title, 0, None, "Enter an estimated effort greater than zero, in whole minutes."
     if not task.get("due_at"):
-        return task_id, title, minutes, None, "截止时间缺失，请先补充并确认"
+        return task_id, title, minutes, None, "The deadline is missing. Enter and confirm it before scheduling."
     try:
         due = _instant(task["due_at"])
     except (ValueError, TypeError):
-        return task_id, title, minutes, None, "截止时间无效或缺少时区，请先修正"
+        return task_id, title, minutes, None, "The deadline is invalid or has no timezone. Correct it before scheduling."
     return task_id, title, minutes, due, ""
 
 
@@ -260,7 +260,7 @@ def propose_schedule(
     try:
         ctx = _context(available_slots, busy_events, settings)
     except (ValueError, TypeError, KeyError) as exc:
-        reason = f"排程配置或日程无效：{exc}"
+        reason = f"The schedule settings or events are invalid: {exc}"
         result["warnings"].append(reason)
         result["unscheduled"] = [
             {"task_id": item[0], "title": item[1], "remaining_minutes": item[2], "reason": reason}
@@ -271,7 +271,7 @@ def propose_schedule(
     candidates = []
     for task_id, title, minutes, due, reason in task_infos:
         if not reason and ctx.now is not None and due <= ctx.now:
-            reason = "截止时间已到或已过，请先调整任务"
+            reason = "The deadline has passed. Update the task before scheduling."
         if reason:
             result["unscheduled"].append(
                 {
@@ -323,7 +323,7 @@ def propose_schedule(
             if not remaining:
                 break
         if soft_target_missed:
-            result["warnings"].append(f"“{title}”未达到建议提前量，但仍安排在实际截止时间之前。")
+            result["warnings"].append(f"{title} is scheduled before its deadline, but without the preferred deadline buffer.")
         if remaining:
             result["unscheduled"].append(
                 {
@@ -331,8 +331,8 @@ def propose_schedule(
                     "title": title,
                     "remaining_minutes": remaining,
                     "reason": (
-                        "本次按截止时间排序的排程未找到足够时段；请调整空闲时间、"
-                        "任务耗时或优先级后重试，不代表其他安排一定不可行"
+                        "This plan could not fit all the work before its deadline. Adjust availability, "
+                        "effort estimates, or priorities and try again. A different arrangement may still be possible."
                     ),
                 }
             )
@@ -355,7 +355,7 @@ def validate_schedule(
     try:
         ctx = _context(available_slots, busy_events, settings)
     except (ValueError, TypeError, KeyError) as exc:
-        return [f"无法校验：排程配置或日程无效：{exc}"]
+        return [f"Cannot validate the plan. The schedule settings or events are invalid: {exc}"]
     issues = []
     duplicates = _duplicate_ids(tasks)
     task_map = {str(task.get("id") or ""): task for task in tasks}
@@ -363,11 +363,11 @@ def validate_schedule(
     task_seconds: dict = defaultdict(float)
     intervals = []
     for index, block in enumerate(blocks, 1):
-        label = f"第 {index} 个学习时段"
+        label = f"Study session {index}"
         try:
             start, end = _interval(block, label)
         except (ValueError, TypeError, KeyError) as exc:
-            issues.append(f"{label}无效：{exc}")
+            issues.append(f"{label} is invalid: {exc}")
             continue
         intervals.append((start, end, index))
         seconds = (end - start).total_seconds()
@@ -378,37 +378,37 @@ def validate_schedule(
             or claimed_minutes <= 0
             or claimed_minutes * 60 != seconds
         ):
-            issues.append(f"{label}的分钟数与起止时间不符")
+            issues.append(f"{label} has a duration that does not match its start and end times.")
         if seconds > ctx.max_block * 60:
-            issues.append(f"{label}超过单次学习上限")
+            issues.append(f"{label} exceeds the session duration limit.")
         if not any(allowed_start <= start and end <= allowed_end for allowed_start, allowed_end in ctx.free):
-            issues.append(f"{label}不在允许的空闲时间内，或与已有日程、用餐、通勤冲突")
+            issues.append(f"{label} falls outside your availability or conflicts with an event, meal, or commute.")
         if ctx.now is not None and start < ctx.now:
-            issues.append(f"{label}安排在当前时间之前")
+            issues.append(f"{label} starts in the past.")
         local_day = start.astimezone(ctx.zone).date()
         if (end - timedelta(microseconds=1)).astimezone(ctx.zone).date() != local_day:
-            issues.append(f"{label}跨越本地日期，应拆分")
+            issues.append(f"{label} crosses midnight and must be split.")
         daily_seconds[local_day] += seconds
         task_id = str(block.get("task_id") or "")
         task_seconds[task_id] += seconds
         task = task_map.get(task_id)
         if task is None:
-            issues.append(f"{label}引用不存在的任务")
+            issues.append(f"{label} refers to a task that does not exist.")
             continue
         _, _, _, due, reason = _task_info(task, duplicates)
         if reason:
-            issues.append(f"{label}对应的任务不可安排：{reason}")
+            issues.append(f"{label} cannot be scheduled: {reason}")
         elif end > due:
-            issues.append(f"{label}晚于任务截止时间")
+            issues.append(f"{label} ends after the task deadline.")
     for day, seconds in daily_seconds.items():
         if seconds > ctx.daily_limit * 60:
-            issues.append(f"{day.isoformat()} 的学习时长超过每日上限")
+            issues.append(f"Study time on {day.isoformat()} exceeds the daily limit.")
     for task_id, seconds in task_seconds.items():
         task = task_map.get(task_id)
         if task:
             _, _, minutes, _, reason = _task_info(task, duplicates)
             if not reason and seconds > minutes * 60:
-                issues.append(f"任务 {task_id} 的总安排时长超过预计耗时")
+                issues.append(f"The scheduled time for task {task_id} exceeds its estimated effort.")
     # Keep the farthest end encountered, so a nested overlapping block cannot
     # conceal a later collision with an earlier, longer block.
     latest_end = None
@@ -416,9 +416,9 @@ def validate_schedule(
     for start, end, index in sorted(intervals):
         if latest_end is not None:
             if start < latest_end:
-                issues.append(f"第 {latest_index} 和第 {index} 个学习时段重叠")
+                issues.append(f"Study sessions {latest_index} and {index} overlap.")
             elif start < latest_end + timedelta(minutes=ctx.break_minutes):
-                issues.append(f"第 {latest_index} 和第 {index} 个学习时段之间休息不足")
+                issues.append(f"The break between study sessions {latest_index} and {index} is too short.")
         if latest_end is None or end > latest_end:
             latest_end, latest_index = end, index
     return issues

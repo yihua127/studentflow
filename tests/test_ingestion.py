@@ -63,7 +63,7 @@ def test_missing_timezone_is_not_invented():
     message.replace_header("Date", "Thu, 08 Oct 2026 10:00:00 -0000")
     parsed = parse_eml_bytes(message.as_bytes(), "no_timezone.eml")
     assert parsed["sent_at"] is None
-    assert any("时区" in warning for warning in parsed["warnings"])
+    assert any("timezone" in warning for warning in parsed["warnings"])
 
 
 def test_attachment_paths_are_display_only_and_dangerous_types_blocked():
@@ -84,13 +84,13 @@ def test_embedded_mail_not_treated_as_parent_body():
     message.add_attachment(email_with_body("embedded evidence"))
     parsed = parse_eml_bytes(message.as_bytes(), "nested.eml")
     assert parsed["body"] == "parent evidence"
-    assert any("内嵌邮件" in warning for warning in parsed["warnings"])
+    assert any("Attached emails" in warning for warning in parsed["warnings"])
 
 
 def test_oversized_and_empty_mail_rejected():
     with pytest.raises(ValueError, match="20 MB"):
         parse_eml_bytes(b"x" * (MAX_EMAIL_BYTES + 1), "large.eml")
-    with pytest.raises(ValueError, match="为空"):
+    with pytest.raises(ValueError, match="empty"):
         parse_eml_bytes(b"", "empty.eml")
 
 

@@ -1,13 +1,13 @@
-"""Streamlit Sprint 1 workbench. Run from this project using start.ps1."""
+"""StudentFlow: a local inbox, task and study-planning application."""
 
 from __future__ import annotations
 
-import copy
-import hashlib
-import json
+import csv
+import io
 import os
+import re
 from contextlib import closing
-from datetime import date, datetime, time
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -15,38 +15,321 @@ import streamlit as st
 from dotenv import dotenv_values
 
 from studentflow.attachments import extract_attachment
+from studentflow.gmail import GmailError, connect
 from studentflow.ingestion import parse_eml_bytes
-from studentflow.planner import propose_schedule, validate_schedule
+from studentflow.planning_ui import render_planner
 from studentflow.retrieval import build_chunks, search_chunks
 from studentflow.storage import Store
 
 ROOT = Path(__file__).resolve().parent
-PACK = ROOT.parent / "group work" / "StudentFlow_B_Email_Pack" / "StudentFlow_B_Email_Pack"
 ZONE = ZoneInfo("Asia/Singapore")
 
 
-def load_config(name):
-    return json.loads((ROOT / "config" / name).read_text(encoding="utf-8"))
-
-
-def import_message(raw, name):
-    mail = parse_eml_bytes(raw, name)
-    mail["imported_at"] = datetime.now(ZONE).isoformat()
-    existed = mail["id"] in st.session_state.mails
-    st.session_state.mails[mail["id"]] = mail
-    return existed
+def display_time(value):
+    if not value:
+        return "Not specified"
+    try:
+        return datetime.fromisoformat(value).astimezone(ZONE).strftime("%d %b %Y, %H:%M")
+    except (ValueError, TypeError):
+        return str(value)
 
 
 def show_warnings(warnings):
     for warning in dict.fromkeys(warnings):
-        st.warning(warning)
+        # Older browser sessions may retain parser messages from the previous UI.
+        if re.search(r"[\u3400-\u9fff]", warning):
+            st.warning("Some message details need review. Reopen the message to refresh its details.")
+        else:
+            st.warning(warning)
+
+
+def available_messages():
+    # Preserve source text without exposing old development fixtures.
+    return {
+        key: mail for key, mail in st.session_state.mails.items()
+        if mail.get("provider") == "gmail" or mail.get("source_name", "").startswith("Gmail / ")
+    }
+
+
+def open_message(raw, message_id):
+    mail = parse_eml_bytes(raw, "Gmail / " + message_id)
+    mail["imported_at"] = datetime.now(ZONE).isoformat()
+    mail["provider"] = "gmail"
+    existed = mail["id"] in st.session_state.mails
+    st.session_state.mails[mail["id"]] = mail
+    st.session_state.active_mail = mail["id"]
+    return existed
+
+
+def render_message_review(store, api_key, model):
+    mails = available_messages()
+    if not mails:
+        return
+    st.divider()
+    st.subheader("Message review")
+    identifiers = list(mails)
+    active = st.session_state.get("active_mail")
+    mid = st.selectbox(
+        "Opened messages", identifiers,
+        index=identifiers.index(active) if active in identifiers else len(identifiers) - 1,
+        format_func=lambda key: mails[key]["subject"] or "Untitled message",
+        key="review_message",
+    )
+    mail = mails[mid]
+    st.write(f"**{mail['subject'] or 'Untitled message'}**")
+    st.caption(f"From: {mail['sender']} · Sent: {display_time(mail['sent_at'])} · Singapore time")
+    st.text_area("Message", mail["body"], height=210, disabled=True, key="body_" + mid)
+    show_warnings(mail["warnings"])
+    st.caption(f"{len(mail['attachments'])} attachment(s)")
+
+    with st.expander("Extract tasks with AI"):
+        if not api_key or not model:
+            st.info("AI extraction is not configured. Tasks can still be added manually below.")
+        allow_model = st.checkbox(
+            "Allow this message's subject, text and date to be sent to OpenAI for task extraction. Usage charges may apply.",
+            key="allow_model_" + mid,
+        )
+        if st.button("Extract tasks", disabled=not (api_key and model and allow_model)):
+            from studentflow.extraction import extract_tasks
+
+            try:
+                with st.spinner("Finding tasks in this message..."):
+                    result = extract_tasks(
+                        mail["body"], mail["subject"], mail["sent_at"], api_key, model
+                    )
+                st.session_state.candidates[mid] = result
+            except Exception:
+                st.error("Task extraction could not be completed. Check the AI connection or add the task manually.")
+        candidates = st.session_state.candidates.get(mid)
+        if candidates:
+            show_warnings(candidates.get("warnings", []))
+            if not candidates.get("tasks"):
+                st.info("No actionable tasks were found. A task can still be added manually.")
+            for index, candidate in enumerate(candidates.get("tasks", []), 1):
+                with st.container(border=True):
+                    st.write(f"**{candidate['title']}**")
+                    st.caption(f"Deadline: {display_time(candidate.get('due_at'))}")
+                    if candidate.get("estimated_minutes"):
+                        st.caption(f"Estimated study time: {candidate['estimated_minutes']} minutes")
+                    if candidate.get("source_quote"):
+                        st.text(candidate["source_quote"])
+                    show_warnings(candidate.get("needs_clarification", []))
+                    if st.button("Use this suggestion", key=f"use_{mid}_{index}"):
+                        prefix = "task_" + mid
+                        st.session_state[prefix + "_title"] = candidate["title"]
+                        due = candidate.get("due_at")
+                        st.session_state[prefix + "_due"] = (
+                            datetime.fromisoformat(due).astimezone(ZONE).strftime("%Y-%m-%d %H:%M")
+                            if due else ""
+                        )
+                        st.session_state[prefix + "_minutes"] = int(candidate.get("estimated_minutes") or 0)
+                        st.session_state[prefix + "_quote"] = candidate.get("source_quote", "")
+                        st.session_state[prefix + "_reviewed"] = False
+                        st.rerun()
+
+    prefix = "task_" + mid
+    with st.form("confirm_" + mid):
+        st.write("**Add a task**")
+        title = st.text_input("Task name", key=prefix + "_title")
+        left, right = st.columns(2)
+        with left:
+            due_text = st.text_input(
+                "Deadline (Singapore time)", placeholder="YYYY-MM-DD HH:MM",
+                help="Leave blank if the deadline is not clear.", key=prefix + "_due",
+            )
+        with right:
+            minutes = st.number_input(
+                "Estimated study time (minutes)", min_value=0, max_value=10000,
+                value=0, step=15, help="Use 0 if the required time is not yet known.",
+                key=prefix + "_minutes",
+            )
+        quote = st.text_area(
+            "Supporting text", help="Copy a passage from the message that describes the task.",
+            height=90, key=prefix + "_quote",
+        )
+        reviewed = st.checkbox("I have reviewed this task and its supporting text.", key=prefix + "_reviewed")
+        if st.form_submit_button("Save task", type="primary"):
+            try:
+                if not reviewed or not title.strip():
+                    raise ValueError("Enter a task name and confirm that the task has been reviewed.")
+                if not quote.strip() or quote.strip() not in mail["body"]:
+                    raise ValueError("Supporting text must match a passage in this message.")
+                due = None
+                if due_text.strip():
+                    try:
+                        due = datetime.strptime(due_text.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=ZONE).isoformat()
+                    except ValueError:
+                        raise ValueError("Enter the deadline as YYYY-MM-DD HH:MM, or leave it blank.") from None
+                complete = bool(due and minutes)
+                store.save_task({
+                    "mail_id": mid, "source_name": "Gmail", "title": title.strip(),
+                    "due_at": due, "estimated_minutes": int(minutes) or None,
+                    "status": "confirmed" if complete else "pending", "source_quote": quote.strip(),
+                    "mail_subject": mail["subject"], "mail_sent_at": mail["sent_at"],
+                    "mail_imported_at": mail.get("imported_at"),
+                })
+                st.success("Task saved." if complete else "Task saved as Needs details. Add a deadline and estimated time before planning.")
+            except ValueError as exc:
+                st.error(str(exc))
+
+
+def render_inbox(store, data_dir, api_key, model):
+    st.subheader("Inbox")
+    st.caption("Open a message and turn it into a task.")
+    credential_path = Path(os.environ.get("STUDENTFLOW_GMAIL_CLIENT", str(ROOT / "credentials" / "gmail_client.json")))
+    token_path = data_dir / "auth" / "gmail_token.json"
+    profile = st.session_state.get("gmail_profile")
+    with st.expander(
+        "Gmail connection",
+        expanded=not token_path.is_file() or not st.session_state.get("gmail_consent", False),
+    ):
+        if profile:
+            st.write("Connected account: " + profile.get("email_address", "Gmail"))
+        elif token_path.is_file():
+            st.caption("A sign-in is saved on this device. Refresh the inbox to continue.")
+        if not credential_path.is_file():
+            st.info("Gmail has not been configured on this device. Complete the setup before connecting.")
+            st.link_button("Gmail setup guide", "https://github.com/yihua127/studentflow/blob/main/docs/GMAIL_SETUP.md")
+        consent = st.checkbox("Allow StudentFlow to read my Gmail messages.", key="gmail_consent")
+        st.caption("Read-only access. Messages are not sent, deleted or marked as read.")
+        if st.button("Connect Gmail", disabled=not credential_path.is_file() or not consent):
+            st.session_state.pop("gmail_profile", None)
+            st.session_state.pop("gmail_headers", None)
+            try:
+                with st.spinner("Complete Google sign-in in the browser, then return here..."):
+                    with closing(connect(credential_path, token_path, interactive=True)) as mailbox:
+                        st.session_state.gmail_profile = mailbox.profile()
+                st.success("Gmail connected. Refresh the inbox to view messages.")
+            except GmailError as exc:
+                st.error(str(exc))
+        if token_path.is_file() and st.button("Disconnect Gmail"):
+            token_path.unlink(missing_ok=True)
+            for key in ("gmail_profile", "gmail_headers", "mails", "candidates", "documents", "active_mail"):
+                st.session_state.pop(key, None)
+            st.session_state.gmail_signed_out = True
+            st.rerun()
+        if token_path.is_file():
+            st.caption("Disconnecting clears the saved sign-in on this device. Saved tasks remain available.")
+    if st.session_state.pop("gmail_signed_out", False):
+        st.success("Gmail disconnected from this device.")
+    count_col, button_col = st.columns([1, 3], vertical_alignment="bottom")
+    with count_col:
+        count = st.selectbox("Messages to show", [5, 10, 20])
+    with button_col:
+        if st.button("Refresh inbox", disabled=not consent or not token_path.is_file(), type="primary"):
+            st.session_state.pop("gmail_headers", None)
+            try:
+                with st.spinner("Loading inbox..."):
+                    with closing(connect(credential_path, token_path)) as mailbox:
+                        st.session_state.gmail_profile = mailbox.profile()
+                        st.session_state.gmail_headers = mailbox.list_messages(count)
+            except GmailError as exc:
+                st.error(str(exc))
+    headers = st.session_state.get("gmail_headers", [])
+    if headers:
+        choice = st.selectbox(
+            "Choose a message", headers,
+            format_func=lambda item: f"{item['subject']} — {item['sender']}",
+        )
+        if st.button("Open message", disabled=not consent):
+            try:
+                with st.spinner("Opening message and attachments..."):
+                    with closing(connect(credential_path, token_path)) as mailbox:
+                        if mailbox.profile() != st.session_state.get("gmail_profile"):
+                            raise GmailError("The signed-in account changed. Refresh the inbox before opening a message.")
+                        raw = mailbox.fetch_eml(choice["id"])
+                        open_message(raw, choice["id"])
+                st.session_state.pop("review_message", None)
+            except (GmailError, ValueError) as exc:
+                st.error(str(exc))
+    elif "gmail_headers" in st.session_state:
+        st.info("No messages in the inbox. Refresh after a new message arrives.")
+    elif not token_path.is_file():
+        st.info("Connect Gmail to view your inbox.")
+    else:
+        st.caption("Refresh the inbox to load messages.")
+    render_message_review(store, api_key, model)
+
+
+def render_tasks(tasks):
+    st.subheader("Tasks")
+    st.caption("Review confirmed tasks and complete any missing details before planning.")
+    if not tasks:
+        st.info("No tasks yet. Open a message in Inbox (Gmail) and save a task.")
+        return
+    rows = [{
+        "Task": task["title"], "Deadline": display_time(task.get("due_at")),
+        "Study time (min)": task.get("estimated_minutes"),
+        "Status": "Confirmed" if task["status"] == "confirmed" else "Needs details",
+        "Source message": task.get("mail_subject") or "Saved message",
+    } for task in tasks]
+    st.dataframe(rows, hide_index=True, width="stretch")
+    with st.expander("Supporting text"):
+        selection = st.selectbox("Task", list(range(len(tasks))), format_func=lambda index: tasks[index]["title"])
+        st.text(tasks[selection].get("source_quote", "No supporting text saved."))
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(rows[0]))
+    writer.writeheader()
+    for row in rows:
+        # Email-derived text must remain text when opened in a spreadsheet.
+        writer.writerow({
+            key: "'" + value if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")) else value
+            for key, value in row.items()
+        })
+    st.download_button("Download tasks", buffer.getvalue(), "studentflow_tasks.csv", "text/csv")
+
+
+def render_attachments():
+    st.subheader("Attachments")
+    st.caption("Find information in attachments from opened messages.")
+    mails = available_messages()
+    attachment_count = sum(len(mail["attachments"]) for mail in mails.values())
+    if not attachment_count:
+        st.info("Open a message with a PDF or Word attachment from Inbox (Gmail) to get started.")
+        return
+    if st.button("Read attachments", type="primary"):
+        documents = []
+        for mail in mails.values():
+            for attachment in mail["attachments"]:
+                document = extract_attachment(attachment)
+                document["mail_id"] = mail["id"]
+                document["message_subject"] = mail["subject"]
+                documents.append(document)
+        st.session_state.documents = documents
+    documents = [document for document in st.session_state.get("documents", []) if document.get("mail_id") in mails]
+    status_labels = {
+        "ok": "Ready", "partial": "Partially readable", "needs_ocr": "Text recognition needed",
+        "error": "Could not read", "blocked": "Unavailable", "encrypted": "Password protected",
+        "unsupported": "Unsupported file type", "empty": "No text found",
+    }
+    for document in documents:
+        with st.expander(f"{document['filename']} · {status_labels.get(document['status'], 'Not available')}"):
+            st.caption("Source message: " + mails[document["mail_id"]]["subject"])
+            show_warnings(document["warnings"])
+            st.text(document["text"])
+    if not documents:
+        st.caption("Read the attachments to make their text searchable.")
+        return
+    with st.form("attachment_search"):
+        question = st.text_input("Search attachments", placeholder="Enter keywords from the document")
+        search = st.form_submit_button("Search")
+    if search:
+        hits = search_chunks(question, build_chunks(documents))
+        if not hits:
+            st.info("No matching text found. Try different keywords.")
+        for hit in hits:
+            with st.container(border=True):
+                st.write(hit["filename"])
+                page = f"Page {hit['page']}" if hit["page"] else "Document text"
+                st.caption(f"{mails[hit['mail_id']]['subject']} · {page}")
+                st.text(hit["text"])
 
 
 def main():
-    st.set_page_config(page_title="StudentFlow · Sprint 1", layout="wide")
+    st.set_page_config(page_title="StudentFlow", page_icon="📘", layout="wide")
+    st.set_option("client.toolbarMode", "viewer")
     st.title("StudentFlow")
-    st.caption("Sprint 1 本地开发原型 · 邮件与确认记录保存在本机")
-    st.info("可导入 EML，或先授权 Gmail 再读取真实邮件。AI 提取需要单独配置模型 API，并由你选择是否发送邮件正文给模型。")
+    st.caption("Turn email into a clear study plan.")
     st.session_state.setdefault("mails", {})
     st.session_state.setdefault("candidates", {})
     data_dir = Path(os.environ.get("STUDENTFLOW_DATA_DIR", str(ROOT / "data")))
@@ -54,234 +337,16 @@ def main():
     config = dotenv_values(ROOT / ".env")
     api_key = config.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
     model = config.get("OPENAI_MODEL") or os.environ.get("OPENAI_MODEL", "")
-    st.sidebar.write("模型配置：" + ("已填写，尚需实际调用验证" if api_key and model else "未配置，使用本地功能"))
-    st.sidebar.caption("LangChain 负责调用模型；Streamlit 是当前操作页面。")
-    tabs = st.tabs(["1 导入邮件与确认任务", "2 已保存任务", "3 学习计划", "4 附件原文检索", "真实邮箱（Gmail）"])
-
+    tabs = st.tabs(["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments"])
     with tabs[0]:
-        files = []
-        # Only these two input directories are discoverable. Never scan answers,
-        # manifest, docs, or the mixed input/answer workbook.
-        for folder in (PACK / "inputs" / "eml_50", PACK / "inputs" / "attachment_demos"):
-            files.extend(sorted(folder.glob("*.eml")))
-        selected = st.selectbox("选择同学提供的模拟邮件", files, format_func=lambda p: p.name, index=None)
-        if st.button("导入选中的模拟邮件", disabled=selected is None):
-            try:
-                existed = import_message(selected.read_bytes(), selected.name)
-                st.success("该邮件已导入，未重复添加。" if existed else "导入成功。")
-            except (ValueError, OSError) as exc:
-                st.error(str(exc))
-        uploads = st.file_uploader("也可以选择 EML 文件", type=["eml"], accept_multiple_files=True)
-        if st.button("导入上传的 EML", disabled=not uploads):
-            for uploaded in uploads:
-                try:
-                    import_message(uploaded.getvalue(), uploaded.name)
-                except ValueError as exc:
-                    st.error(f"{uploaded.name}：{exc}")
-            st.success("已处理所选文件；相同内容的邮件只保留一份。")
-        mails = st.session_state.mails
-        if mails:
-            mid = st.selectbox("查看已导入邮件", list(mails), format_func=lambda key: f"{mails[key]['source_name']} · {mails[key]['subject']}")
-            mail = mails[mid]
-            st.write(f"发件人：{mail['sender']}　邮件时间：{mail['sent_at'] or '缺失，需核对'}")
-            st.text_area("邮件正文", mail["body"], height=200, disabled=True, key="body_" + mid)
-            show_warnings(mail["warnings"])
-            st.caption(f"实际附件数：{len(mail['attachments'])}。正文提及附件不等于文件已附上。")
-            allow_model = st.checkbox("同意将当前邮件的标题、正文和发送时间发给所配置的 OpenAI 模型（可能含个人信息并产生 API 费用）", key="allow_model_" + mid)
-            if st.button("用 LangChain 提取任务", disabled=not (api_key and model and allow_model)):
-                try:
-                    from studentflow.extraction import extract_tasks
-
-                    with st.spinner("正在提取，请核对返回结果…"):
-                        result = extract_tasks(mail["body"], mail["subject"], mail["sent_at"], api_key, model)
-                    st.session_state.candidates[mid] = result
-                except Exception as exc:
-                    # Provider error strings can contain sensitive request details.
-                    st.error(f"模型调用未完成（{type(exc).__name__}）。请检查模型配置、额度或依赖环境；没有保存任务。")
-            candidates = st.session_state.candidates.get(mid)
-            if candidates:
-                show_warnings(candidates.get("warnings", []))
-                for index, candidate in enumerate(candidates.get("tasks", []), 1):
-                    with st.expander(f"AI 草稿 {index}：{candidate['title']}", expanded=True):
-                        st.json(candidate)
-                st.caption("AI 返回值仍是草稿。请把需要保留的任务填入下方，核对后确认。")
-            with st.form("confirm_" + mid):
-                st.write("人工核对并保存任务")
-                title = st.text_input("任务名称")
-                due_text = st.text_input("截止时间（新加坡时间；不明确可留空）", placeholder="2026-10-15 23:59")
-                minutes = st.number_input("预计需要多少分钟（由你估计；0 表示尚未确认）", min_value=0, max_value=10000, value=0, step=15)
-                quote = st.text_area("原文依据（从上方邮件正文复制一段）", height=80)
-                reviewed = st.checkbox("我已核对原文、截止时间和预计耗时")
-                submitted = st.form_submit_button("确认并保存到本机")
-                if submitted:
-                    try:
-                        if not reviewed or not title.strip():
-                            raise ValueError("请填写任务名称，并勾选核对确认。")
-                        if not quote.strip() or quote.strip() not in mail["body"]:
-                            raise ValueError("原文依据必须是当前邮件正文中的一段连续文字。")
-                        due = datetime.strptime(due_text.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=ZONE).isoformat() if due_text.strip() else None
-                        complete = bool(due and minutes)
-                        store.save_task({"mail_id": mid, "source_name": mail["source_name"], "title": title.strip(), "due_at": due, "estimated_minutes": int(minutes) or None, "status": "confirmed" if complete else "pending", "source_quote": quote.strip(), "mail_subject": mail["subject"], "mail_sent_at": mail["sent_at"], "mail_imported_at": mail.get("imported_at")})
-                        st.success("已保存。" if complete else "已保存为待补充任务；补齐截止时间和耗时之前不会参与排程。")
-                    except ValueError as exc:
-                        st.error(str(exc))
-
+        render_inbox(store, data_dir, api_key, model)
+    tasks = store.tasks()
     with tabs[1]:
-        tasks = store.tasks()
-        st.write("再次提交同一邮件、同一任务名称会更新原记录。不同邮件中的相同任务尚需人工合并。")
-        if tasks:
-            st.dataframe([{ "任务": t["title"], "截止": t["due_at"], "分钟": t["estimated_minutes"], "状态": "已确认" if t["status"] == "confirmed" else "待补充", "来源": t["source_name"], "原文依据": t["source_quote"]} for t in tasks], hide_index=True)
-        else:
-            st.write("暂未保存任务。先在第一个页面导入邮件并确认。")
-
+        render_tasks(tasks)
     with tabs[2]:
-        scenarios = load_config("scenarios.json")
-        scenario_key = st.radio("可用时段", list(scenarios), format_func=lambda key: scenarios[key]["label"], horizontal=True)
-        scenario = scenarios[scenario_key]
-        settings = load_config("planning_rules.json")
-        task_source = st.radio("本次排程使用哪些任务", ["我的已保存任务", "同学提供的场景样例任务"], horizontal=True)
-        sample_reviewed = False
-        if task_source == "同学提供的场景样例任务":
-            plan_tasks = copy.deepcopy(scenario["tasks"])
-            st.dataframe(plan_tasks, hide_index=True)
-            sample_reviewed = st.checkbox("我已核对上述样例输入，确认用于本次模拟排程", key=f"sample_reviewed_{scenario_key}")
-            if sample_reviewed:
-                for task in plan_tasks:
-                    task["status"] = "confirmed"
-        else:
-            plan_tasks = tasks
-            # Real saved tasks must never be planned in past fixture slots.
-            # Minute precision avoids invalidating an unchanged plan on reruns.
-            settings["now"] = datetime.now(ZONE).replace(second=0, microsecond=0).isoformat()
-        with st.expander("查看空闲时段、课程和规则假设"):
-            st.dataframe(scenario["available_slots"], hide_index=True)
-            st.dataframe(scenario["busy_events"], hide_index=True)
-            show_warnings(scenario["warnings"] + settings["assumptions"])
-        st.caption("学习范围 08:00–22:00；保留三餐；课外学习每天最多 6 小时；未知路线按单程 40 分钟预留。仅使用已列出的空闲时段。")
-        busy = copy.deepcopy(scenario["busy_events"])
-        add_busy = st.checkbox("模拟临时会议，重新规划学习时间")
-        if add_busy:
-            new_day = st.date_input("会议日期", value=date.fromisoformat(scenario["start_date"]))
-            start_time = st.time_input("会议开始", value=time(13, 0))
-            end_time = st.time_input("会议结束", value=time(14, 0))
-            busy.append({"title": "临时线上会议", "start": datetime.combine(new_day, start_time, ZONE).isoformat(), "end": datetime.combine(new_day, end_time, ZONE).isoformat(), "mode": "online"})
-        inputs = {"tasks": plan_tasks, "slots": scenario["available_slots"], "busy": busy, "settings": settings}
-        signature = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-        if st.button("生成学习计划草稿", disabled=not plan_tasks or (task_source != "我的已保存任务" and not sample_reviewed)):
-            plan = propose_schedule(plan_tasks, scenario["available_slots"], busy, settings)
-            errors = validate_schedule(plan["blocks"], plan_tasks, scenario["available_slots"], busy, settings)
-            st.session_state.plan = {"signature": signature, "result": plan, "validation_errors": errors, "inputs": inputs, "scenario": scenario_key, "task_source": task_source}
-        saved_plan = st.session_state.get("plan")
-        if saved_plan and saved_plan["signature"] == signature:
-            result = saved_plan["result"]
-            show_warnings(result["warnings"] + saved_plan["validation_errors"])
-            if result["blocks"]:
-                st.dataframe(result["blocks"], hide_index=True)
-            else:
-                st.write("本次没有生成学习时段。")
-            if result["unscheduled"]:
-                st.warning("以下任务仍有时间未安排，不能视为全部完成：")
-                st.dataframe(result["unscheduled"], hide_index=True)
-            confirm_plan = st.checkbox("我已核对学习计划和提醒，保存这一版到本机", key="confirm_plan_" + signature)
-            if st.button("保存计划", disabled=not confirm_plan or bool(saved_plan["validation_errors"]) or not result["blocks"]):
-                store.save_plan(saved_plan)
-                st.success("计划已保存在本机。")
-            st.download_button("下载本次计划与校验结果", json.dumps(saved_plan, ensure_ascii=False, indent=2), "studentflow_plan.json", "application/json")
-        elif saved_plan:
-            st.info("排程输入已改变，请重新生成草稿。")
-
+        render_planner(tasks, store, data_dir)
     with tabs[3]:
-        st.write("先导入一封带附件的邮件；本地材料可选 AX01（PDF）、AX02（Word）或 AX03（图片）。")
-        st.caption("当前提供附件原文检索，尚未实现完整的 RAG 回答。图片需要后续接入文字识别。")
-        if st.button("读取当前已导入邮件的附件"):
-            documents = []
-            for mail in st.session_state.mails.values():
-                for attachment in mail["attachments"]:
-                    document = extract_attachment(attachment)
-                    document["mail_id"] = mail["id"]
-                    document["source_name"] = mail["source_name"]
-                    documents.append(document)
-            st.session_state.documents = documents
-        documents = st.session_state.get("documents", [])
-        for document in documents:
-            with st.expander(f"{document['source_name']} / {document['filename']} · {document['status']}"):
-                show_warnings(document["warnings"])
-                st.text(document["text"])
-        with st.form("search"):
-            question = st.text_input("输入关键词查找依据", placeholder="使用附件原文的语言，例如 submission 或 format")
-            search = st.form_submit_button("查找附件原文")
-        if search:
-            hits = search_chunks(question, build_chunks(documents))
-            if not hits:
-                st.info("没有找到关键词匹配的原文；当前不会猜测答案。")
-            for hit in hits:
-                source = st.session_state.mails[hit["mail_id"]]["source_name"]
-                st.write(f"{source} / {hit['filename']} / " + (f"第 {hit['page']} 页" if hit["page"] else "无可靠页码"))
-                st.text(hit["text"])
-
-    with tabs[4]:
-        st.write("连接你自己的 Gmail，只读取收件箱及选中邮件的正文、附件。")
-        st.caption("不会发送邮件、删除邮件或修改已读状态。连接邮箱不调用 GPT，也不会自动把邮件发给模型。")
-        from studentflow.gmail import GmailError, connect
-
-        credential_path = Path(os.environ.get("STUDENTFLOW_GMAIL_CLIENT", str(ROOT / "credentials" / "gmail_client.json")))
-        token_path = data_dir / "auth" / "gmail_token.json"
-        st.write("首次使用：按项目 docs 文件夹内《Gmail接入操作指南》配置 Google 登录，并把下载的文件保存为 credentials/gmail_client.json。")
-        st.write("登录配置文件：" + ("已找到" if credential_path.is_file() else "尚未找到"))
-        consent = st.checkbox("我同意 StudentFlow 通过 Google 授权读取我选择的邮箱", key="gmail_consent")
-        if st.button("登录并授权 Gmail", disabled=not credential_path.is_file() or not consent):
-            # Clear old account-scoped UI state before switching accounts.
-            st.session_state.pop("gmail_profile", None)
-            st.session_state.pop("gmail_headers", None)
-            try:
-                with st.spinner("请在浏览器完成 Google 登录和授权，然后回到此页面…"):
-                    with closing(connect(credential_path, token_path, interactive=True)) as mailbox:
-                        st.session_state.gmail_profile = mailbox.profile()
-                st.success("Google 授权及邮箱身份检查已通过，可以读取列表。")
-            except GmailError as exc:
-                st.error(str(exc))
-        profile = st.session_state.get("gmail_profile")
-        if profile:
-            st.write("当前邮箱：" + profile.get("email_address", "已授权"))
-        count = st.selectbox("每次最多列出多少封收件箱邮件", [5, 10, 20])
-        if st.button("读取收件箱列表", disabled=not consent or not token_path.is_file()):
-            st.session_state.pop("gmail_headers", None)
-            try:
-                with st.spinner("正在只读查询收件箱…"):
-                    with closing(connect(credential_path, token_path)) as mailbox:
-                        profile = mailbox.profile()
-                        st.session_state.gmail_profile = profile
-                        st.session_state.gmail_headers = mailbox.list_messages(count)
-                if not st.session_state.gmail_headers:
-                    st.info("本次未找到收件箱邮件。")
-            except GmailError as exc:
-                st.error(str(exc))
-        headers = st.session_state.get("gmail_headers", [])
-        if headers:
-            choice = st.selectbox("选择一封邮件导入", headers, format_func=lambda item: f"{item['subject']} · {item['sender']} · {item['sent_at']}")
-            st.caption("列表只查询邮件头。点击导入后才读取选中邮件的完整正文与附件；内容在当前页面会话中保留。")
-            if st.button("导入选中的真实邮件", disabled=not consent):
-                try:
-                    with st.spinner("正在读取选中邮件及附件…"):
-                        with closing(connect(credential_path, token_path)) as mailbox:
-                            actual_profile = mailbox.profile()
-                            if actual_profile != st.session_state.get("gmail_profile"):
-                                raise GmailError("登录账号已改变，请重新读取收件箱列表后选择邮件。")
-                            raw = mailbox.fetch_eml(choice["id"])
-                            duplicate = import_message(raw, "Gmail / " + choice["id"])
-                    st.success("该邮件已导入，未重复添加。" if duplicate else "已导入。到第一个页面查看正文和确认任务，到附件页面查看实际附件。")
-                except (GmailError, ValueError) as exc:
-                    st.error(str(exc))
-        if token_path.is_file():
-            if st.button("退出本机 Gmail 授权"):
-                token_path.unlink(missing_ok=True)
-                for key in ("gmail_profile", "gmail_headers", "mails", "candidates", "documents", "plan"):
-                    st.session_state.pop(key, None)
-                st.session_state.gmail_signed_out = True
-                st.rerun()
-        if st.session_state.pop("gmail_signed_out", False):
-            st.success("已删除本机登录缓存并清空当前页面邮件。已确认保存的任务仍在本机。")
-            st.caption("如需撤销 Google 端对 StudentFlow 的许可，请在 Google 账号的第三方连接中移除它。")
+        render_attachments()
 
 
 if __name__ == "__main__":

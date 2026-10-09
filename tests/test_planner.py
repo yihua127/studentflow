@@ -96,7 +96,7 @@ def test_incomplete_or_unconfirmed_tasks_excluded(changes):
 def test_insufficient_capacity_retains_remaining_minutes_without_false_proof():
     plan = checked([task(180)], [slot("09:00", "10:00")])
     assert plan["unscheduled"][0]["remaining_minutes"] == 120
-    assert "不代表" in plan["unscheduled"][0]["reason"]
+    assert "may still be possible" in plan["unscheduled"][0]["reason"]
 
 
 def test_default_onsite_commute_both_sides():
@@ -104,7 +104,7 @@ def test_default_onsite_commute_both_sides():
     plan = checked([task(300)], [slot("09:00", "12:30")], busy)
     assert plan["blocks"][0]["end"] == stamp("09:20")
     assert plan["blocks"][1]["start"] == stamp("12:00")
-    assert "尚未查询真实路线" in plan["warnings"][0]
+    assert "not been checked against a route" in plan["warnings"][0]
 
 
 def test_online_has_no_commute():
@@ -159,7 +159,7 @@ def test_dst_uses_local_dates_and_correct_offset():
 def test_soft_buffer_does_not_hide_actual_capacity():
     plan = checked([task(60, due="10:00")], [slot("09:00", "10:00")], settings={"buffer_minutes": 1440})
     assert not plan["unscheduled"]
-    assert any("建议提前量" in message for message in plan["warnings"])
+    assert any("preferred deadline buffer" in message for message in plan["warnings"])
 
 
 def test_invalid_busy_event_fails_closed():
@@ -177,9 +177,9 @@ def test_validator_rejects_tampered_plan():
         {"task_id": "t1", "title": "x", "start": stamp("10:00"), "end": stamp("11:00"), "minutes": 60},
     ]
     issues = validate_schedule(blocks, tasks, [slot()], [], {})
-    assert any("截止" in issue for issue in issues)
-    assert any("重叠" in issue for issue in issues)
-    assert any("超过预计耗时" in issue for issue in issues)
+    assert any("deadline" in issue for issue in issues)
+    assert any("overlap" in issue for issue in issues)
+    assert any("exceeds its estimated effort" in issue for issue in issues)
 
 
 def test_validator_checks_rest_and_unconfirmed_tasks():
@@ -188,9 +188,9 @@ def test_validator_checks_rest_and_unconfirmed_tasks():
         {"task_id": "t1", "title": "x", "start": stamp("09:00"), "end": stamp("10:00"), "minutes": 60},
         {"task_id": "t1", "title": "x", "start": stamp("10:15"), "end": stamp("11:15"), "minutes": 60},
     ]
-    assert any("休息不足" in issue for issue in validate_schedule(blocks, tasks, [slot()], [], {}))
+    assert any("break between" in issue for issue in validate_schedule(blocks, tasks, [slot()], [], {}))
     tasks[0]["status"] = "pending"
-    assert any("尚未确认" in issue for issue in validate_schedule(blocks, tasks, [slot()], [], {}))
+    assert any("not confirmed" in issue for issue in validate_schedule(blocks, tasks, [slot()], [], {}))
 
 
 def test_missing_and_duplicate_ids_not_scheduled():

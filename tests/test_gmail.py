@@ -94,7 +94,7 @@ def test_profile_lists_headers_and_fetches_mime_without_writes():
 @pytest.mark.parametrize("identifier", ["../profile", "https://bad.test", "a?format=full", "", None, "a" * 257])
 def test_rejects_invalid_message_id_before_network(identifier):
     session = FakeSession([])
-    with pytest.raises(gmail.GmailError, match="邮件编号无效"):
+    with pytest.raises(gmail.GmailError, match="message ID is invalid"):
         gmail.GmailMailbox(session).fetch_eml(identifier)
     assert not session.calls
 
@@ -126,7 +126,7 @@ def test_network_exception_details_are_not_exposed():
 @pytest.mark.parametrize("headers", [{}, {"Content-Length": "90000"}])
 def test_stream_and_declared_response_size_are_bounded(headers):
     response = FakeResponse(raw=b" " * 90_000, headers=headers)
-    with pytest.raises(gmail.GmailError, match="数据过大"):
+    with pytest.raises(gmail.GmailError, match="response is too large"):
         gmail.GmailMailbox(FakeSession([response])).profile()
     assert response.closed
 
@@ -140,7 +140,7 @@ def test_raw_mail_requires_valid_base64url(raw):
 def test_raw_mail_decoded_limit_is_enforced(monkeypatch):
     monkeypatch.setattr(gmail, "MAX_EMAIL_BYTES", 3)
     encoded = base64.urlsafe_b64encode(b"abcd").decode()
-    with pytest.raises(gmail.GmailError, match="超过 20 MB"):
+    with pytest.raises(gmail.GmailError, match="exceeds 20 MB"):
         gmail.GmailMailbox(FakeSession([FakeResponse({"raw": encoded})])).fetch_eml("abcdef")
 
 
@@ -169,7 +169,7 @@ def test_rejects_non_google_or_incomplete_oauth_config(tmp_path, field, value):
 
 
 def test_requires_desktop_oauth_client(tmp_path):
-    with pytest.raises(gmail.GmailError, match="桌面应用"):
+    with pytest.raises(gmail.GmailError, match="Desktop app"):
         gmail._client_config(write_client(tmp_path, {"web": valid_client()["installed"]}))
 
 
@@ -182,7 +182,7 @@ def test_rejects_cached_tokens_for_other_clients_or_permissions(change):
     client = valid_client()["installed"]
     info = {**client, "scopes": gmail.SCOPES}
     info.update(change)
-    with pytest.raises(gmail.GmailError, match="只读权限"):
+    with pytest.raises(gmail.GmailError, match="read-only permission"):
         gmail._check_token_info(info, client)
 
 
@@ -236,7 +236,7 @@ def fake_google(monkeypatch):
 
 def test_noninteractive_connect_never_opens_browser(tmp_path, monkeypatch):
     events, _ = fake_google(monkeypatch)
-    with pytest.raises(gmail.GmailError, match="点击连接"):
+    with pytest.raises(gmail.GmailError, match="Click Connect Gmail"):
         gmail.connect(write_client(tmp_path), tmp_path / "token.json")
     assert events == []
 
@@ -289,7 +289,7 @@ def test_refresh_rechecks_granted_permissions_before_saving(tmp_path, monkeypatc
         self.granted_scopes = returned_scopes
 
     monkeypatch.setattr(credentials_type, "refresh", refresh)
-    with pytest.raises(gmail.GmailError, match="只读权限"):
+    with pytest.raises(gmail.GmailError, match="read-only permission"):
         gmail.connect(write_client(tmp_path), token)
     assert events == ["cached", "refresh"]
     assert token.read_text() == original

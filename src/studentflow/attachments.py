@@ -32,11 +32,11 @@ def extract_attachment(attachment: dict) -> dict:
     content = attachment.get("content", b"")
     if len(content) > MAX_BYTES:
         result["status"] = "blocked"
-        result["warnings"].append("附件超过 10 MB，未解析。")
+        result["warnings"].append("The attachment exceeds 10 MB and could not be read.")
         return result
     if not content:
         result["status"] = "blocked" if result["warnings"] else "empty"
-        result["warnings"].append("附件没有可用内容。")
+        result["warnings"].append("The attachment has no readable content.")
         return result
     extension = ntpath.splitext(result["filename"])[1].lower()
     if extension in {".png", ".jpg", ".jpeg"}:
@@ -47,37 +47,37 @@ def extract_attachment(attachment: dict) -> dict:
         )
         result["status"] = "needs_ocr" if valid_signature else "error"
         result["warnings"].append(
-            "图片尚未识别，需要用户授权后运行 OCR；当前不能据此回答。"
-            if valid_signature else "文件内容与图片扩展名不匹配。"
+            "Text recognition is not available for images. Image content is not included in search results."
+            if valid_signature else "The file content does not match its image format."
         )
         return result
     try:
         if extension == ".pdf":
             if b"%PDF-" not in content[:1024]:
-                raise ValueError("文件内容不是可识别的 PDF。")
+                raise ValueError("The file is not a readable PDF.")
             reader = PdfReader(io.BytesIO(content), strict=False)
             if reader.is_encrypted:
                 result["status"] = "encrypted"
-                result["warnings"].append("PDF 已加密，未读取；请提供未加密版本。")
+                result["warnings"].append("This PDF is encrypted and could not be read. Use an unencrypted copy.")
                 return result
             total_chars = 0
             truncated = len(reader.pages) > MAX_PAGES
             if truncated:
-                result["warnings"].append(f"PDF 超过 {MAX_PAGES} 页，仅提取前 {MAX_PAGES} 页。")
+                result["warnings"].append(f"This PDF exceeds {MAX_PAGES} pages. Only the first {MAX_PAGES} pages were read.")
             for number, page in enumerate(reader.pages[:MAX_PAGES], 1):
                 text = (page.extract_text() or "").strip()
                 available = min(MAX_PAGE_CHARS, MAX_TEXT_CHARS - total_chars)
                 if len(text) > available:
                     text = text[:available]
                     truncated = True
-                    result["warnings"].append(f"PDF 第 {number} 页达到字符上限，已截断。")
+                    result["warnings"].append(f"PDF page {number} reached the text limit and was shortened.")
                 if not text:
-                    result["warnings"].append(f"PDF 第 {number} 页没有可提取文字，可能需要 OCR。")
+                    result["warnings"].append(f"PDF page {number} contains no selectable text. Text recognition may be needed.")
                 result["pages"].append({"page": number, "text": text})
                 total_chars += len(text)
                 if total_chars >= MAX_TEXT_CHARS:
                     truncated = True
-                    result["warnings"].append("PDF 达到总字符上限，后续页面未处理。")
+                    result["warnings"].append("This PDF reached the text limit. The remaining pages were not read.")
                     break
             result["text"] = "\n\n".join(page["text"] for page in result["pages"] if page["text"])
             if not result["text"]:
@@ -96,10 +96,10 @@ def extract_attachment(attachment: dict) -> dict:
                     or any(member.file_size / max(member.compress_size, 1) > 200 for member in members)
                 ):
                     result["status"] = "blocked"
-                    result["warnings"].append("DOCX 解压体积或压缩比超过安全上限，未读取。")
+                    result["warnings"].append("This Word document exceeds the processing limits and could not be read.")
                     return result
                 if "word/document.xml" not in archive.namelist():
-                    raise ValueError("文件不包含 Word 文档正文。")
+                    raise ValueError("The file contains no Word document body.")
             document = Document(io.BytesIO(content))
             lines: list[str] = []
             for element in document.element.body:
@@ -115,12 +115,12 @@ def extract_attachment(attachment: dict) -> dict:
             # Word's pagination is layout-dependent: no fabricated page number.
             result["pages"] = [{"page": None, "text": result["text"]}]
             result["status"] = "partial" if truncated else ("ok" if text else "empty")
-            result["warnings"].append("Word 仅提取正文段落和表格；未识别图片，未计算实际页码。")
+            result["warnings"].append("Text and tables were read from this Word document. Images and page numbers are not included.")
             if truncated:
-                result["warnings"].append("Word 正文达到字符上限，已截断。")
+                result["warnings"].append("This Word document reached the text limit and was shortened.")
         else:
-            result["warnings"].append("仅支持 PDF、DOCX、PNG 和 JPG 附件。")
-    except Exception as exc:
+            result["warnings"].append("This attachment format is not supported. Use PDF or DOCX for text search.")
+    except Exception:  # noqa: BLE001 - Malformed files return a safe, user-facing status.
         result["status"] = "error"
-        result["warnings"].append(f"附件解析失败（{type(exc).__name__}），请检查原文件。")
+        result["warnings"].append("The attachment could not be read. Check the original file.")
     return result
