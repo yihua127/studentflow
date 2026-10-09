@@ -212,6 +212,7 @@ def test_server_errors_are_sanitized_and_response_closed(status):
     with pytest.raises(gmail.GmailError) as error:
         gmail.GmailMailbox(FakeSession([response])).profile()
     assert "sensitive" not in str(error.value)
+    assert isinstance(error.value, gmail.GmailAuthError) is (status == 401)
     assert response.closed
 
 
@@ -335,7 +336,7 @@ def fake_google(monkeypatch):
 
 def test_noninteractive_connect_never_opens_browser(tmp_path, monkeypatch):
     events, _ = fake_google(monkeypatch)
-    with pytest.raises(gmail.GmailError, match="Click Connect Gmail"):
+    with pytest.raises(gmail.GmailAuthError, match="Click Connect Gmail"):
         gmail.connect(write_client(tmp_path), tmp_path / "token.json")
     assert events == []
 
@@ -350,6 +351,7 @@ def test_explicit_connect_opens_loopback_flow_and_saves_token(tmp_path, monkeypa
     assert options["port"] == 0
     assert options["timeout_seconds"] == 180
     assert options["prompt"] == "select_account consent"
+    assert options["access_type"] == "offline"
     assert "{url}" not in options["authorization_prompt_message"]
     assert json.loads(token.read_text())["scopes"] == gmail.SCOPES
     assert not list(token.parent.glob(".gmail-*"))
@@ -363,6 +365,20 @@ def test_valid_cached_token_does_not_trigger_new_consent(tmp_path, monkeypatch):
     assert events == ["cached"]
 
 
+def test_reopening_uses_saved_sign_in_without_browser(tmp_path, monkeypatch):
+    events, _ = fake_google(monkeypatch)
+    client = write_client(tmp_path)
+    token = tmp_path / "auth" / "token.json"
+    gmail.connect(client, token, interactive=True).close()
+    saved = token.read_text()
+    events.clear()
+    # Fresh connect calls share only the on-disk authorization, not a session.
+    gmail.connect(client, token).close()
+    gmail.connect(client, token).close()
+    assert events == ["cached", "cached"]
+    assert token.read_text() == saved
+
+
 def test_expired_cached_token_refreshes_without_browser(tmp_path, monkeypatch):
     events, credentials_type = fake_google(monkeypatch)
     credentials_type.valid = False
@@ -370,6 +386,117 @@ def test_expired_cached_token_refreshes_without_browser(tmp_path, monkeypatch):
     token.write_text(credentials_type().to_json())
     gmail.connect(write_client(tmp_path), token)
     assert events == ["cached", "refresh"]
+
+
+def test_refreshed_credentials_are_saved_for_the_next_connection(tmp_path, monkeypatch):
+    events, credentials_type = fake_google(monkeypatch)
+    credentials_type.valid = False
+    token = tmp_path / "token.json"
+    token.write_text(credentials_type().to_json())
+
+    def refreshed_json(self):
+        assert self.valid
+        return json.dumps({
+            **valid_client()["installed"], "scopes": self.scopes,
+            "token": "synthetic-renewed-access", "refresh_token": "synthetic-refresh-token",
+        })
+
+    monkeypatch.setattr(credentials_type, "to_json", refreshed_json)
+    client = write_client(tmp_path)
+    gmail.connect(client, token).close()
+    assert events == ["cached", "refresh"]
+    assert json.loads(token.read_text())["token"] == "synthetic-renewed-access"
+    credentials_type.valid = True
+    gmail.connect(client, token).close()
+    assert events == ["cached", "refresh", "cached"]
+    assert not list(tmp_path.glob(".gmail-*"))
+
+
+@pytest.mark.parametrize("kind", ["transport", "retryable", "unknown", "malformed"])
+def test_temporary_refresh_failure_preserves_saved_sign_in(tmp_path, monkeypatch, kind):
+    from google.auth.exceptions import RefreshError, TransportError
+
+    events, credentials_type = fake_google(monkeypatch)
+    credentials_type.valid = False
+    token = tmp_path / "token.json"
+    saved = credentials_type().to_json()
+    token.write_text(saved)
+    failures = {
+        "transport": TransportError("sensitive-network-request"),
+        "retryable": RefreshError("sensitive-response", {"error": "server_error"}, retryable=True),
+        "unknown": RefreshError("sensitive-response", {"error": "unknown_error"}),
+        "malformed": RefreshError("sensitive-response", {"error": ["invalid_grant"]}),
+    }
+
+    def refresh(self, request):
+        events.append("refresh")
+        raise failures[kind]
+
+    monkeypatch.setattr(credentials_type, "refresh", refresh)
+    with pytest.raises(gmail.GmailError, match="saved connection is retained") as error:
+        gmail.connect(write_client(tmp_path), token)
+    assert not isinstance(error.value, gmail.GmailAuthError)
+    assert "sensitive" not in str(error.value)
+    assert events == ["cached", "refresh"]
+    assert token.read_text() == saved
+
+
+@pytest.mark.parametrize("kind", ["invalid_grant", "invalid_client", "unauthorized_client", "access_denied"])
+def test_revoked_refresh_authorization_requires_explicit_sign_in(tmp_path, monkeypatch, kind):
+    from google.auth.exceptions import RefreshError
+
+    events, credentials_type = fake_google(monkeypatch)
+    credentials_type.valid = False
+    token = tmp_path / "token.json"
+    saved = credentials_type().to_json()
+    token.write_text(saved)
+
+    def refresh(self, request):
+        events.append("refresh")
+        raise RefreshError("sensitive-response", {"error": kind, "error_description": "private details"})
+
+    monkeypatch.setattr(credentials_type, "refresh", refresh)
+    with pytest.raises(gmail.GmailAuthError, match="Reconnect Gmail") as error:
+        gmail.connect(write_client(tmp_path), token)
+    assert "sensitive" not in str(error.value)
+    assert "private" not in str(error.value)
+    assert events == ["cached", "refresh"]
+    assert token.read_text() == saved
+
+
+def test_expired_token_without_refresh_token_requires_sign_in(tmp_path, monkeypatch):
+    events, credentials_type = fake_google(monkeypatch)
+    credentials_type.valid = False
+    credentials_type.refresh_token = None
+    token = tmp_path / "token.json"
+    saved = credentials_type().to_json()
+    token.write_text(saved)
+    with pytest.raises(gmail.GmailAuthError, match="Reconnect Gmail"):
+        gmail.connect(write_client(tmp_path), token)
+    assert events == ["cached"]
+    assert token.read_text() == saved
+
+
+def test_invalid_saved_json_requires_sign_in_without_overwriting_token(tmp_path, monkeypatch):
+    events, _ = fake_google(monkeypatch)
+    token = tmp_path / "token.json"
+    token.write_text("invalid-synthetic-authorization")
+    with pytest.raises(gmail.GmailAuthError, match="Reconnect Gmail"):
+        gmail.connect(write_client(tmp_path), token)
+    assert events == []
+    assert token.read_text() == "invalid-synthetic-authorization"
+
+
+@pytest.mark.parametrize("retryable", [False, True])
+def test_refresh_failure_during_read_distinguishes_auth_from_temporary_error(retryable):
+    from google.auth.exceptions import RefreshError
+
+    failure = RefreshError("sensitive-server-detail", {"error": "invalid_grant"}, retryable=retryable)
+    mailbox = gmail.GmailMailbox(FakeSession([failure]))
+    with pytest.raises(gmail.GmailError) as error:
+        mailbox.profile()
+    assert isinstance(error.value, gmail.GmailAuthError) is not retryable
+    assert "sensitive" not in str(error.value)
 
 
 @pytest.mark.parametrize("returned_scopes", [

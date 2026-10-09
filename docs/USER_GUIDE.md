@@ -2,7 +2,11 @@
 
 ## Inbox (Gmail)
 
-Connect Gmail, refresh the inbox, select a message and choose **Open message**. Review the message text before creating a task. Messages and attachments are opened locally. AI extraction sends the selected message's subject, text and date to the configured model after your consent.
+Connect Gmail once on your device. StudentFlow restores the saved connection when you reopen the window or restart the app, and shows **Gmail connected**. Select **Switch account** to use another account or **Disconnect Gmail** to sign out of this device.
+
+Refresh the inbox, select a message and choose **Open message**. Review the message text before creating a task. Messages and attachments are opened locally. AI extraction sends the selected message's subject, text and date to the configured model after your consent.
+
+If the connection is temporarily unavailable, select **Retry connection**. If Google requires renewed authorization, select **Reconnect Gmail** to sign in again.
 
 The inbox starts with 20 messages per batch. Choose 5, 10 or 20 under **Messages per batch**, and select **Load more** to add the next batch to the list. The loaded count shows how many messages are available to browse. **Refresh inbox** starts a fresh list with the latest messages.
 

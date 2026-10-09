@@ -315,8 +315,8 @@ def test_refresh_and_reconnect_start_a_new_pagination_sequence(tmp_path, monkeyp
     assert state["calls"][-1] == ("list", 20, "fresh-second")
     assert len(find(app.selectbox, "Choose a message").options) == 21
 
-    # Connecting again clears the previous list rather than carrying its cursor.
-    find(app.button, "Connect Gmail").click()
+    # Switching accounts starts from a new list and pagination cursor.
+    find(app.button, "Switch account").click()
     checked(app)
     assert not any(box.label == "Choose a message" for box in app.selectbox)
     assert not any(button.label == "Load more" for button in app.button)
@@ -330,6 +330,9 @@ def test_refresh_and_reconnect_start_a_new_pagination_sequence(tmp_path, monkeyp
     assert not any(button.label == "Load more" for button in app.button)
     assert app.session_state["mails"] == {}
     assert not (tmp_path / "records" / "auth" / "gmail_token.json").exists()
+    assert find(app.button, "Connect Gmail").disabled
+    find(app.checkbox, "Allow StudentFlow to read my Gmail messages.").check()
+    checked(app)
     find(app.button, "Connect Gmail").click()
     checked(app)
     assert not any(box.label == "Choose a message" for box in app.selectbox)
@@ -364,3 +367,167 @@ def test_account_change_clears_old_messages_before_listing_or_opening(tmp_path, 
     assert state["calls"][-1] == ("list", 20, None)
     assert len(find(app.selectbox, "Choose a message").options) == 2
     assert find(app.selectbox, "Choose a message").value.startswith("different")
+
+
+def saved_connection(tmp_path, monkeypatch, *, saved=True, error=None):
+    """A durable fake sign-in shared by otherwise independent browser sessions."""
+    isolate(tmp_path, monkeypatch)
+    token_path = tmp_path / "records" / "auth" / "gmail_token.json"
+    if saved:
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text("{}", encoding="utf-8")
+    state = {"calls": [], "error": error, "list_error": None, "fetch_error": None}
+
+    class FakeMailbox:
+        def profile(self):
+            state["calls"].append(("profile",))
+            return {"email_address": "student@example.com"}
+
+        def list_message_page(self, limit=20, page_token=None):
+            state["calls"].append(("list", limit, page_token))
+            if state["list_error"]:
+                raise state["list_error"]
+            return page(message_headers(1, 2), "second-page")
+
+        def fetch_eml(self, message_id):
+            state["calls"].append(("fetch", message_id))
+            if state["fetch_error"]:
+                raise state["fetch_error"]
+            message = EmailMessage()
+            message["From"] = "teacher@example.com"
+            message["Subject"] = "Assignment"
+            message.set_content("Please submit the report by October 15 at 17:00.")
+            return message.as_bytes()
+
+        def close(self):
+            state["calls"].append(("close",))
+
+    def fake_connect(credentials_path, saved_token_path, interactive=False):
+        state["calls"].append(("connect", interactive))
+        if state["error"]:
+            raise state["error"]
+        if interactive:
+            saved_token_path.parent.mkdir(parents=True, exist_ok=True)
+            saved_token_path.write_text("{}", encoding="utf-8")
+        else:
+            assert saved_token_path.is_file()
+        return FakeMailbox()
+
+    monkeypatch.setattr(gmail, "connect", fake_connect)
+    return token_path, state
+
+
+def test_saved_login_restores_once_per_new_browser_without_reading_messages(tmp_path, monkeypatch):
+    token_path, state = saved_connection(tmp_path, monkeypatch, saved=False)
+    original = checked(AppTest.from_file(str(APP)))
+    assert state["calls"] == []
+    find(original.checkbox, "Allow StudentFlow to read my Gmail messages.").check()
+    checked(original)
+    find(original.button, "Connect Gmail").click()
+    checked(original)
+    assert state["calls"] == [("connect", True), ("profile",), ("close",)]
+    assert token_path.is_file()
+
+    # Closing a browser loses its session state but keeps the on-device sign-in.
+    state["calls"].clear()
+    reopened = checked(AppTest.from_file(str(APP)))
+    assert state["calls"] == [("connect", False), ("profile",), ("close",)]
+    assert reopened.session_state["gmail_profile"]["email_address"] == "student@example.com"
+    assert not find(reopened.button, "Refresh inbox").disabled
+    assert find(reopened.button, "Switch account")
+    assert "Gmail connected: student@example.com" in interface_text(reopened)
+
+    # A rerun or a batch-size change must not repeat connection/profile requests.
+    calls_before = list(state["calls"])
+    checked(reopened)
+    find(reopened.selectbox, "Messages per batch").select(5)
+    checked(reopened)
+    assert state["calls"] == calls_before
+    assert not find(reopened.button, "Refresh inbox").disabled
+    find(reopened.button, "Refresh inbox").click()
+    checked(reopened)
+    assert ("list", 5, None) in state["calls"]
+    assert not any(call[0] == "fetch" for call in state["calls"])
+
+
+def test_explicit_disconnect_survives_new_browser_and_clears_messages(tmp_path, monkeypatch):
+    token_path, state = saved_connection(tmp_path, monkeypatch)
+    app = checked(AppTest.from_file(str(APP)))
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    find(app.button, "Open message").click()
+    checked(app)
+    assert len(app.session_state["mails"]) == 1
+    find(app.button, "Disconnect Gmail").click()
+    checked(app)
+    assert not token_path.exists()
+    assert app.session_state["mails"] == {}
+    assert "gmail_profile" not in app.session_state or not app.session_state["gmail_profile"]
+    assert find(app.checkbox, "Allow StudentFlow to read my Gmail messages.").value is False
+    assert find(app.button, "Refresh inbox").disabled
+    assert not any(button.label == "Load more" for button in app.button)
+
+    state["calls"].clear()
+    reopened = checked(AppTest.from_file(str(APP)))
+    assert state["calls"] == []
+    assert find(reopened.button, "Connect Gmail").disabled
+    assert find(reopened.button, "Refresh inbox").disabled
+
+
+def test_temporary_restore_error_preserves_login_and_retries_without_oauth(tmp_path, monkeypatch):
+    token_path, state = saved_connection(
+        tmp_path, monkeypatch, error=gmail.GmailError("Gmail is temporarily unavailable. Try again."),
+    )
+    app = checked(AppTest.from_file(str(APP)))
+    assert state["calls"] == [("connect", False)]
+    assert token_path.exists()
+    assert find(app.button, "Refresh inbox").disabled
+    assert find(app.button, "Retry connection")
+    assert "temporarily unavailable" in interface_text(app)
+    checked(app)
+    assert state["calls"] == [("connect", False)]
+
+    state["error"] = None
+    find(app.button, "Retry connection").click()
+    checked(app)
+    assert state["calls"] == [("connect", False), ("connect", False), ("profile",), ("close",)]
+    assert not find(app.button, "Refresh inbox").disabled
+    assert token_path.exists()
+
+
+def test_revoked_saved_login_requests_explicit_reconnect(tmp_path, monkeypatch):
+    token_path, state = saved_connection(
+        tmp_path, monkeypatch, error=gmail.GmailAuthError("Your Gmail sign-in has expired. Reconnect Gmail to continue."),
+    )
+    app = checked(AppTest.from_file(str(APP)))
+    assert state["calls"] == [("connect", False)]
+    assert token_path.exists()
+    assert find(app.button, "Reconnect Gmail")
+    assert find(app.button, "Refresh inbox").disabled
+    assert "Reconnect Gmail" in interface_text(app)
+    checked(app)
+    assert state["calls"] == [("connect", False)]
+
+    state["error"] = None
+    find(app.button, "Reconnect Gmail").click()
+    checked(app)
+    assert state["calls"] == [("connect", False), ("connect", True), ("profile",), ("close",)]
+    assert not find(app.button, "Refresh inbox").disabled
+    assert not any(call[0] in ("list", "fetch") for call in state["calls"])
+
+
+@pytest.mark.parametrize("action", ["Refresh inbox", "Load more", "Open message"])
+def test_revoked_login_during_message_action_prompts_reconnect(tmp_path, monkeypatch, action):
+    token_path, state = saved_connection(tmp_path, monkeypatch)
+    app = checked(AppTest.from_file(str(APP)))
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    error = gmail.GmailAuthError("Your Gmail sign-in has expired. Reconnect Gmail to continue.")
+    state["fetch_error" if action == "Open message" else "list_error"] = error
+    find(app.button, action).click()
+    checked(app)
+    assert token_path.exists()
+    assert find(app.button, "Reconnect Gmail")
+    assert find(app.button, "Refresh inbox").disabled
+    assert "Reconnect Gmail" in interface_text(app)
+    assert not any(call == ("connect", True) for call in state["calls"])

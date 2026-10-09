@@ -26,6 +26,8 @@ uv run --locked streamlit run app.py --server.address 127.0.0.1 --browser.gather
 
 Open http://localhost:8501. On Windows, an existing installation can also be started with `start.ps1`.
 
+After updating the application, restart StudentFlow to load the new code. The saved Gmail sign-in is restored on startup.
+
 Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to create a desktop OAuth client and save its configuration as `credentials/gmail_client.json`. Each person signs in on their own computer.
 
 ## Optional AI extraction
@@ -37,6 +39,7 @@ Tasks can also be entered manually in the message review form.
 ## Data and permissions
 
 - Gmail connections use the `gmail.readonly` permission.
+- Gmail sign-in is remembered on this device and restored automatically when StudentFlow opens. **Disconnect Gmail** signs out of the device; **Switch account** selects another account.
 - Choose 5, 10 or 20 messages per batch. Select **Load more** to append the next batch, or **Refresh inbox** to start again with the latest messages. Opening a selected message loads its text and attachments.
 - Tasks, preferences, plans and sign-in data are stored locally in the `data/` directory.
 - Disconnecting removes the local Gmail sign-in and clears opened messages. Previously saved tasks remain.

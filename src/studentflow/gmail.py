@@ -33,6 +33,29 @@ class GmailError(Exception):
     """A user-facing error that never contains token values or server responses."""
 
 
+class GmailAuthError(GmailError):
+    """Saved authorization cannot be used without a new, explicit sign-in."""
+
+
+def _requires_sign_in(error: Exception) -> bool:
+    """Classify explicit OAuth rejection, never transport or retryable failures."""
+    try:
+        from google.auth.exceptions import RefreshError
+    except ImportError:
+        return False
+    if not isinstance(error, RefreshError) or error.retryable:
+        return False
+    # Google includes the parsed OAuth response in RefreshError.args. Do not
+    # expose its message, description, headers or token values to the caller.
+    rejected = {"invalid_grant", "invalid_client", "unauthorized_client", "access_denied"}
+    return any(
+        isinstance(detail, dict)
+        and isinstance(detail.get("error"), str)
+        and detail["error"] in rejected
+        for detail in error.args
+    )
+
+
 def _load_json(path: Path, description: str) -> dict:
     try:
         with path.open("rb") as source:
@@ -81,7 +104,7 @@ def _check_token_info(info: dict, client: dict) -> None:
         or info.get("token_uri") != TOKEN_URI
         or _scope_set(info.get("scopes")) != set(SCOPES)
     ):
-        raise GmailError("The saved connection does not match this app or its read-only permissions. Reconnect Gmail.")
+        raise GmailAuthError("The saved connection does not match this app or its read-only permissions. Reconnect Gmail.")
 
 
 def _check_credentials(credentials: Any) -> None:
@@ -89,9 +112,9 @@ def _check_credentials(credentials: Any) -> None:
     if _scope_set(credentials.scopes) != set(SCOPES) or (
         granted is not None and _scope_set(granted) != set(SCOPES)
     ):
-        raise GmailError("Gmail read-only permissions were not granted as requested. Check the connection settings.")
+        raise GmailAuthError("Gmail read-only permissions were not granted as requested. Check the connection settings.")
     if not credentials.valid:
-        raise GmailError("Google did not return a valid authorization. Reconnect Gmail.")
+        raise GmailAuthError("Google did not return a valid authorization. Reconnect Gmail.")
 
 
 def _save_token(path: Path, credentials: Any) -> None:
@@ -127,19 +150,22 @@ def connect(
 
     credentials = None
     if token_path.is_file() and not interactive:
-        info = _load_json(token_path, "saved Gmail connection")
+        try:
+            info = _load_json(token_path, "saved Gmail connection")
+        except GmailError:
+            raise GmailAuthError("The saved Gmail connection could not be read. Reconnect Gmail.") from None
         _check_token_info(info, config["installed"])
         try:
             credentials = Credentials.from_authorized_user_info(info, SCOPES)
         except (ValueError, TypeError):
-            raise GmailError("The saved Gmail connection is invalid. Reconnect Gmail.") from None
+            raise GmailAuthError("The saved Gmail connection is invalid. Reconnect Gmail.") from None
 
     if not interactive:
         if credentials is None:
-            raise GmailError("Gmail is not connected. Click Connect Gmail to sign in.")
+            raise GmailAuthError("Gmail is not connected. Click Connect Gmail to sign in.")
         if not credentials.valid:
             if not credentials.refresh_token:
-                raise GmailError("Your Gmail authorization has expired. Reconnect Gmail.")
+                raise GmailAuthError("Your Gmail authorization has expired. Reconnect Gmail.")
             try:
                 request = Request()
 
@@ -148,8 +174,10 @@ def connect(
                     return request(*args, **kwargs)
 
                 credentials.refresh(limited_request)
-            except Exception:  # noqa: BLE001 - OAuth errors may contain credential material.
-                raise GmailError("Could not refresh your Gmail authorization. Check your connection or reconnect Gmail.") from None
+            except Exception as error:  # noqa: BLE001 - OAuth errors may contain credential material.
+                if _requires_sign_in(error):
+                    raise GmailAuthError("Your saved Gmail authorization is no longer valid. Reconnect Gmail.") from None
+                raise GmailError("Could not refresh Gmail right now. Your saved connection is retained. Check your connection and try again.") from None
             _check_credentials(credentials)
             _save_token(token_path, credentials)
     else:
@@ -157,7 +185,7 @@ def connect(
             flow = InstalledAppFlow.from_client_config(config, SCOPES)
             credentials = flow.run_local_server(
                 host="127.0.0.1", port=0, timeout_seconds=180,
-                prompt="select_account consent",
+                prompt="select_account consent", access_type="offline",
                 authorization_prompt_message="Complete Google sign-in in your browser.",
                 success_message="Gmail is connected. You can return to StudentFlow.",
             )
@@ -205,7 +233,7 @@ class GmailMailbox:
                 max_allowed_time=30, allow_redirects=False, stream=True,
             )
             if response.status_code == 401:
-                raise GmailError("Your Gmail authorization has expired. Reconnect Gmail.")
+                raise GmailAuthError("Your Gmail authorization has expired. Reconnect Gmail.")
             if response.status_code == 403:
                 raise GmailError("Gmail denied access. Check that the Gmail API is enabled and your account has test-user access and read-only permission.")
             if response.status_code == 429:
@@ -226,8 +254,10 @@ class GmailMailbox:
             return result
         except GmailError:
             raise
-        except Exception:  # noqa: BLE001 - Suppress request headers and private response bodies.
-            raise GmailError("Could not read Gmail. Check your connection and authorization, then try again.") from None
+        except Exception as error:  # noqa: BLE001 - Suppress request headers and private response bodies.
+            if _requires_sign_in(error):
+                raise GmailAuthError("Your saved Gmail authorization is no longer valid. Reconnect Gmail.") from None
+            raise GmailError("Could not read Gmail right now. Check your connection and try again.") from None
         finally:
             if response is not None:
                 response.close()

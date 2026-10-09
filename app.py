@@ -15,7 +15,7 @@ import streamlit as st
 from dotenv import dotenv_values
 
 from studentflow.attachments import extract_attachment
-from studentflow.gmail import GmailError, connect
+from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.ingestion import parse_eml_bytes
 from studentflow.planning_ui import render_planner
 from studentflow.retrieval import build_chunks, search_chunks
@@ -187,6 +187,32 @@ def reset_inbox(clear_opened=False):
         st.session_state.pop("review_message", None)
 
 
+def restore_gmail_connection(credential_path, token_path):
+    """Resume a previously authorized device once per browser session."""
+    st.session_state.gmail_restore_attempted = True
+    st.session_state.gmail_consent = True
+    st.session_state.pop("gmail_connection_error", None)
+    st.session_state.pop("gmail_auth_required", None)
+    try:
+        with closing(connect(credential_path, token_path)) as mailbox:
+            st.session_state.gmail_profile = mailbox.profile()
+    except GmailError as exc:
+        st.session_state.pop("gmail_profile", None)
+        st.session_state.gmail_connection_error = str(exc)
+        st.session_state.gmail_auth_required = isinstance(exc, GmailAuthError)
+
+
+def show_gmail_error(exc):
+    if isinstance(exc, GmailAuthError):
+        reset_inbox(clear_opened=True)
+        st.session_state.pop("gmail_profile", None)
+        st.session_state.gmail_restore_attempted = True
+        st.session_state.gmail_auth_required = True
+        st.session_state.gmail_connection_error = str(exc)
+        st.rerun()
+    st.error(str(exc))
+
+
 def load_inbox_page(credential_path, token_path, count, append=False):
     cursor = st.session_state.get("gmail_next_page_token") if append else None
     if append and not cursor:
@@ -226,34 +252,64 @@ def render_inbox(store, data_dir, api_key, model):
     st.caption("Open a message and turn it into a task.")
     credential_path = Path(os.environ.get("STUDENTFLOW_GMAIL_CLIENT", str(ROOT / "credentials" / "gmail_client.json")))
     token_path = data_dir / "auth" / "gmail_token.json"
+    saved_sign_in = token_path.is_file()
+    if saved_sign_in and not st.session_state.get("gmail_restore_attempted"):
+        with st.spinner("Restoring Gmail connection..."):
+            restore_gmail_connection(credential_path, token_path)
+    elif not saved_sign_in and st.session_state.get("gmail_restore_attempted"):
+        # Another window may have disconnected this device.
+        reset_inbox(clear_opened=True)
+        for key in ("gmail_profile", "gmail_restore_attempted", "gmail_auth_required", "gmail_connection_error"):
+            st.session_state.pop(key, None)
+        st.session_state.gmail_consent = False
     profile = st.session_state.get("gmail_profile")
+    if profile:
+        st.success("Gmail connected: " + profile.get("email_address", "Gmail"))
     with st.expander(
         "Gmail connection",
-        expanded=not token_path.is_file() or not st.session_state.get("gmail_consent", False),
+        expanded=not profile,
     ):
         if profile:
-            st.write("Connected account: " + profile.get("email_address", "Gmail"))
-        elif token_path.is_file():
-            st.caption("A sign-in is saved on this device. Refresh the inbox to continue.")
+            st.caption("Your sign-in is saved on this device and restored when you reopen StudentFlow.")
+        elif saved_sign_in:
+            st.caption("A sign-in is saved on this device.")
         if not credential_path.is_file():
             st.info("Gmail has not been configured on this device. Complete the setup before connecting.")
             st.link_button("Gmail setup guide", "https://github.com/yihua127/studentflow/blob/main/docs/GMAIL_SETUP.md")
-        consent = st.checkbox("Allow StudentFlow to read my Gmail messages.", key="gmail_consent")
+        if not saved_sign_in:
+            st.checkbox("Allow StudentFlow to read my Gmail messages.", key="gmail_consent")
+            st.caption("Stay signed in on this device until Disconnect Gmail is selected.")
+        consent = saved_sign_in or st.session_state.get("gmail_consent", False)
         st.caption("Read-only access. Messages are not sent, deleted or marked as read.")
-        if st.button("Connect Gmail", disabled=not credential_path.is_file() or not consent):
+        connection_error = st.session_state.get("gmail_connection_error")
+        if connection_error:
+            st.warning(connection_error)
+        if saved_sign_in and not profile and not st.session_state.get("gmail_auth_required"):
+            if st.button("Retry connection", disabled=not credential_path.is_file()):
+                restore_gmail_connection(credential_path, token_path)
+                st.rerun()
+        connect_label = "Switch account" if profile else "Reconnect Gmail" if saved_sign_in else "Connect Gmail"
+        if st.button(connect_label, disabled=not credential_path.is_file() or not consent):
             reset_inbox(clear_opened=True)
             st.session_state.pop("gmail_profile", None)
+            st.session_state.pop("gmail_connection_error", None)
+            st.session_state.pop("gmail_auth_required", None)
+            st.session_state.gmail_restore_attempted = True
             try:
                 with st.spinner("Complete Google sign-in in the browser, then return here..."):
                     with closing(connect(credential_path, token_path, interactive=True)) as mailbox:
                         st.session_state.gmail_profile = mailbox.profile()
-                st.success("Gmail connected. Refresh the inbox to view messages.")
+                st.rerun()
             except GmailError as exc:
-                st.error(str(exc))
+                st.session_state.gmail_connection_error = str(exc)
+                st.session_state.gmail_auth_required = isinstance(exc, GmailAuthError)
+                st.warning(str(exc))
         if token_path.is_file() and st.button("Disconnect Gmail"):
             token_path.unlink(missing_ok=True)
             reset_inbox(clear_opened=True)
-            st.session_state.pop("gmail_profile", None)
+            for key in ("gmail_profile", "gmail_restore_attempted", "gmail_auth_required", "gmail_connection_error"):
+                st.session_state.pop(key, None)
+            st.session_state.pop("gmail_consent", None)
             st.session_state.gmail_signed_out = True
             st.rerun()
         if token_path.is_file():
@@ -264,23 +320,24 @@ def render_inbox(store, data_dir, api_key, model):
     if notice:
         st.error(notice)
     count_col, button_col = st.columns([1, 3], vertical_alignment="bottom")
+    ready = bool(st.session_state.get("gmail_profile") and consent and token_path.is_file())
     with count_col:
         count = st.selectbox("Messages per batch", [5, 10, 20], index=2, key="gmail_batch_size")
     with button_col:
-        if st.button("Refresh inbox", disabled=not consent or not token_path.is_file(), type="primary"):
+        if st.button("Refresh inbox", disabled=not ready, type="primary"):
             try:
                 with st.spinner("Loading inbox..."):
                     load_inbox_page(credential_path, token_path, count)
             except GmailError as exc:
-                st.error(str(exc))
+                show_gmail_error(exc)
     if st.session_state.get("gmail_next_page_token"):
-        if st.button("Load more", disabled=not consent or not token_path.is_file()):
+        if st.button("Load more", disabled=not ready):
             try:
                 with st.spinner("Loading more messages..."):
                     load_inbox_page(credential_path, token_path, count, append=True)
                 st.rerun()
             except GmailError as exc:
-                st.error(str(exc))
+                show_gmail_error(exc)
     headers = st.session_state.get("gmail_headers", [])
     if "gmail_headers" in st.session_state:
         st.caption(f"{len(headers)} message(s) loaded.")
@@ -298,7 +355,7 @@ def render_inbox(store, data_dir, api_key, model):
             format_func=lambda mid: f"{by_id[mid]['subject']} — {by_id[mid]['sender']}",
             key="gmail_selected_message",
         )
-        if st.button("Open message", disabled=not consent):
+        if st.button("Open message", disabled=not ready):
             try:
                 with st.spinner("Opening message and attachments..."):
                     with closing(connect(credential_path, token_path)) as mailbox:
@@ -312,7 +369,7 @@ def render_inbox(store, data_dir, api_key, model):
                         open_message(raw, message_id)
                 st.session_state.pop("review_message", None)
             except (GmailError, ValueError) as exc:
-                st.error(str(exc))
+                show_gmail_error(exc)
     elif "gmail_headers" in st.session_state:
         if st.session_state.get("gmail_next_page_token"):
             st.info("Choose Load more to continue browsing the inbox.")

@@ -22,6 +22,8 @@ Creating a Google Cloud project registers StudentFlow for Google sign-in. See Go
 5. Choose a message and select **Open message**. Its text and attachments are loaded for review.
 6. Add a task using a passage from the message as supporting text. Review it before selecting **Save task**.
 
+Your sign-in is saved on this device. Reopening StudentFlow restores the connection and displays **Gmail connected**. Use **Switch account** to select another Gmail account, or **Disconnect Gmail** to sign out. A temporary connection issue can be retried with **Retry connection**; **Reconnect Gmail** completes a new authorization when requested by Google.
+
 If Google shows a verification notice, verify that the application is your own StudentFlow project and the permission is read-only. If access is blocked, check the project and test-user settings instead of using another application's credentials.
 
 ## Personal data and sign-out
