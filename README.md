@@ -2,7 +2,7 @@
 
 Turn email into a clear study plan.
 
-StudentFlow is a local student productivity application built for DSS5105 Track 4. It connects to Gmail with read-only access, helps review tasks from messages, and plans confirmed work around personal availability.
+StudentFlow is a local productivity application that connects to Gmail, helps turn messages into reviewed tasks, and plans study time around personal availability.
 
 ## Use the app
 
@@ -11,7 +11,7 @@ StudentFlow is a local student productivity application built for DSS5105 Track 
 - **Study Plan:** enter available time and commitments, generate a draft, then confirm before saving.
 - **Attachments:** read PDF and Word attachments and search their source text.
 
-The interface is in English. Original emails, quotations and user-entered content retain their source language. There is no file-upload or development-sample picker in the application.
+The interface is in English. Original emails, quotations and user-entered content retain their source language.
 
 [User guide](docs/USER_GUIDE.md) · [Gmail setup](docs/GMAIL_SETUP.md)
 
@@ -32,22 +32,14 @@ Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to create a desktop OAuth cl
 
 Copy `.env.example` to `.env` and configure `OPENAI_API_KEY` and `OPENAI_MODEL`. Task extraction uses LangChain and a configured OpenAI API model. It runs only after explicit consent for the selected message. Suggestions must be reviewed before saving.
 
-Manual task entry, planning and attachment search work without a model API key. Gmail authorization is separate from AI model billing.
+Tasks can also be entered manually in the message review form.
 
 ## Data and permissions
 
-- Gmail requests only `gmail.readonly`. The app does not send or delete email or change read status.
-- Inbox queries list at most 5–20 messages; opening a selected message fetches its text and attachments.
-- Tasks, preferences, plans and OAuth tokens stay in the local `data/` directory. Credentials and local data are excluded from Git.
+- Gmail connections use the `gmail.readonly` permission.
+- Choose 5, 10 or 20 messages to display. Opening a selected message loads its text and attachments.
+- Tasks, preferences, plans and sign-in data are stored locally in the `data/` directory.
 - Disconnecting removes the local Gmail sign-in and clears opened messages. Previously saved tasks remain.
-- Availability and commitments are entered by the user. The app does not assume a supplied class timetable or sync a calendar automatically.
-- Source messages, API keys, OAuth files, local databases and group answer files must not be committed.
-
-## Current limits
-
-AI extraction quality still needs evaluation with a configured model. Attachment search currently uses keywords, without generated RAG answers. Image/scanned-text recognition, live calendar synchronization, Teams integration, semantic cross-message deduplication and route-time lookup remain future work.
-
-Personal Teams accounts do not support Microsoft Graph chat-message retrieval. Organization-controlled accounts may require administrator approval. [Track scope and integration notes](docs/课程要求与接入范围.md)
 
 ## Development and tests
 
@@ -55,8 +47,6 @@ Personal Teams accounts do not support Microsoft Graph chat-message retrieval. O
 uv run --locked python -m pytest -q
 ```
 
-Tests use synthetic inputs and mocked OAuth/network services. An optional local-material parser test skips when the private development pack is absent. Fixtures are kept outside the user interface and are not loaded into a model or retrieval index.
-
-The interface tests cover consent, Gmail message opening, task review, English labels, personal planning and stale-plan invalidation. Automated tests are separate from live-account and model-quality validation.
+Tests cover email parsing, attachment text extraction, task validation, scheduling and Gmail integration using synthetic inputs and mocked network services. Interface tests cover authorization, message opening, task review and study planning.
 
 Entry point: `app.py`. Application modules: `src/studentflow/`. Tests: `tests/`.
