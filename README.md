@@ -26,6 +26,10 @@ uv run --locked streamlit run app.py --server.address 127.0.0.1 --browser.gather
 
 Open http://localhost:8501. On Windows, an existing installation can also be started with `start.ps1`.
 
+### Desktop shortcut (Windows)
+
+Run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-desktop-shortcut.ps1` from the project folder once. Then double-click **StudentFlow** on the desktop. The launcher starts the app in the background and opens the default browser, reusing an existing StudentFlow instance when available.
+
 After updating the application, restart StudentFlow to load the new code. The saved Gmail sign-in is restored on startup.
 
 Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to create a desktop OAuth client and save its configuration as `credentials/gmail_client.json`. Each person signs in on their own computer.
