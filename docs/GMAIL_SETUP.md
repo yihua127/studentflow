@@ -18,7 +18,7 @@ Creating a Google Cloud project registers StudentFlow for Google sign-in. See Go
 1. Start StudentFlow and open **Inbox (Gmail)**.
 2. Expand **Gmail connection**, check **Allow StudentFlow to read my Gmail messages**, and select **Connect Gmail**.
 3. Complete Google sign-in in the browser. Choose an account listed under Test users and review the read-only permission request.
-4. Return to StudentFlow and select **Refresh inbox**.
+4. Return to StudentFlow and select **Refresh inbox**. Select **Load more** to continue browsing additional messages.
 5. Choose a message and select **Open message**. Its text and attachments are loaded for review.
 6. Add a task using a passage from the message as supporting text. Review it before selecting **Save task**.
 
@@ -29,5 +29,5 @@ If Google shows a verification notice, verify that the application is your own S
 - AI task extraction uses a separately configured model and explicit consent for each selected message.
 - Sign-in tokens are saved in `data/auth/` on your computer. Do not share that folder. Each person should run a separate copy and sign in with their own account.
 - **Disconnect Gmail** removes the saved sign-in on this device and clears opened messages. Previously saved tasks remain. To revoke Google's permission for StudentFlow, remove it from your Google account's third-party connections.
-- The message count limits each inbox query; the OAuth permission itself allows read access to the account's mail.
+- **Messages per batch** sets how many emails each request loads. **Load more** adds the next batch to the inbox list.
 - In External + Testing mode, refresh tokens for this scope expire after seven days. Sign in again when prompted. [Google token documentation](https://developers.google.com/identity/protocols/oauth2#expiration)

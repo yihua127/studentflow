@@ -107,6 +107,105 @@ def test_list_limit_is_bounded_before_network(limit):
     assert not session.calls
 
 
+def test_inbox_pages_follow_opaque_cursors_and_only_read_headers():
+    cursors = ["next page/+token?cursor=2&source=inbox", "third/page=="]
+    responses = []
+    for number in range(3):
+        result = {"messages": [{"id": f"mail{number}"}]}
+        if number < len(cursors):
+            result["nextPageToken"] = cursors[number]
+        responses.extend([
+            FakeResponse(result),
+            FakeResponse({"payload": {"headers": [
+                {"name": "Subject", "value": f"Message {number}"},
+                {"name": "From", "value": "sender@example.test"},
+            ]}}),
+        ])
+    session = FakeSession(responses)
+    mailbox = gmail.GmailMailbox(session)
+    token = None
+    collected = []
+    for number in range(3):
+        page = mailbox.list_message_page(limit=1, page_token=token)
+        assert set(page) == {"messages", "next_page_token"}
+        assert page["messages"] == [{
+            "id": f"mail{number}", "subject": f"Message {number}",
+            "sender": "sender@example.test", "sent_at": "",
+        }]
+        token = page["next_page_token"]
+        assert token == (cursors[number] if number < len(cursors) else None)
+        collected.extend(page["messages"])
+    assert [message["id"] for message in collected] == ["mail0", "mail1", "mail2"]
+    for index, (url, options) in enumerate(session.calls):
+        params = options["params"]
+        if index % 2 == 0:
+            assert url == gmail.API_BASE + "/messages"
+            assert params["maxResults"] == 1
+            assert params["labelIds"] == "INBOX"
+            assert params.get("pageToken") == (None if index == 0 else cursors[index // 2 - 1])
+        else:
+            assert params == {
+                "format": "metadata", "metadataHeaders": ["Subject", "From", "Date"],
+            }
+    assert all(response.closed for response in responses)
+
+
+@pytest.mark.parametrize("result", [
+    {}, {"nextPageToken": None}, {"nextPageToken": ""},
+])
+def test_missing_or_empty_continuation_marks_last_page(result):
+    mailbox = gmail.GmailMailbox(FakeSession([FakeResponse(result)]))
+    assert mailbox.list_message_page(page_token="previous-page") == {
+        "messages": [], "next_page_token": None,
+    }
+
+
+def test_empty_page_can_still_have_a_continuation():
+    mailbox = gmail.GmailMailbox(FakeSession([
+        FakeResponse({"nextPageToken": "another-page"}),
+    ]))
+    assert mailbox.list_message_page() == {"messages": [], "next_page_token": "another-page"}
+
+
+@pytest.mark.parametrize("token", [
+    "", "   ", 5, True, [], {}, "private-cursor\n", "private-cursor\x7f",
+    "private-cursor\x85", "x" * (gmail.MAX_PAGE_TOKEN_CHARS + 1),
+])
+def test_invalid_page_cursor_is_rejected_before_network(token):
+    session = FakeSession([])
+    with pytest.raises(gmail.GmailError, match="Refresh the inbox") as error:
+        gmail.GmailMailbox(session).list_message_page(page_token=token)
+    assert "private-cursor" not in str(error.value)
+    assert not session.calls
+
+
+@pytest.mark.parametrize("token", [
+    "   ", 5, False, [], {}, "private-cursor\r", "private-cursor\x00",
+    "x" * (gmail.MAX_PAGE_TOKEN_CHARS + 1),
+])
+def test_invalid_returned_cursor_is_rejected_before_loading_headers(token):
+    response = FakeResponse({"messages": [{"id": "mail0"}], "nextPageToken": token})
+    session = FakeSession([response])
+    with pytest.raises(gmail.GmailError, match="Refresh the inbox") as error:
+        gmail.GmailMailbox(session).list_message_page()
+    assert "private-cursor" not in str(error.value)
+    assert len(session.calls) == 1
+    assert response.closed
+
+
+@pytest.mark.parametrize("failure", [
+    FakeResponse({"detail": "private-cursor"}, status=500),
+    RuntimeError("private-cursor in request"),
+])
+def test_failed_continuation_is_sanitized_without_reading_mail_bodies(failure):
+    session = FakeSession([failure])
+    with pytest.raises(gmail.GmailError) as error:
+        gmail.GmailMailbox(session).list_message_page(page_token="private-cursor")
+    assert "private-cursor" not in str(error.value)
+    assert len(session.calls) == 1
+    assert session.calls[0][0] == gmail.API_BASE + "/messages"
+
+
 @pytest.mark.parametrize("status", [301, 401, 403, 429, 500])
 def test_server_errors_are_sanitized_and_response_closed(status):
     response = FakeResponse({"token": "sensitive-server-detail"}, status=status)

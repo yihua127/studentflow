@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 import dotenv
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from studentflow import gmail
@@ -88,12 +89,12 @@ def test_mail_consent_review_task_save_and_disconnect(tmp_path, monkeypatch):
         def profile(self):
             return {"email_address": "student@example.com"}
 
-        def list_messages(self, limit):
-            calls.append(("list", limit))
-            return [{
+        def list_message_page(self, limit=20, page_token=None):
+            calls.append(("list", limit, page_token))
+            return {"messages": [{
                 "id": "demo123", "subject": "Assignment", "sender": "teacher@example.com",
                 "sent_at": "Fri, 9 Oct 2026 10:00:00 +0800",
-            }]
+            }], "next_page_token": None}
 
         def fetch_eml(self, message_id):
             calls.append(("fetch", message_id))
@@ -120,7 +121,7 @@ def test_mail_consent_review_task_save_and_disconnect(tmp_path, monkeypatch):
     assert calls == [("connect", True)]
     find(app.button, "Refresh inbox").click()
     checked(app)
-    assert ("list", 5) in calls
+    assert ("list", 20, None) in calls
     assert not any(call[0] == "fetch" for call in calls)
     find(app.button, "Open message").click()
     checked(app)
@@ -159,3 +160,207 @@ def test_mail_consent_review_task_save_and_disconnect(tmp_path, monkeypatch):
     assert app.session_state["mails"] == {}
     assert not (tmp_path / "records" / "auth" / "gmail_token.json").exists()
     assert len(Store(tmp_path / "records" / "studentflow.sqlite3").tasks()) == 1
+
+
+def message_headers(first, last, *, prefix="message"):
+    return [{
+        "id": f"{prefix}{number:03}",
+        "subject": f"Message {number}",
+        "sender": "teacher@example.com",
+        "sent_at": "Fri, 9 Oct 2026 10:00:00 +0800",
+    } for number in range(first, last + 1)]
+
+
+def page(headers, next_token=None):
+    return {"messages": headers, "next_page_token": next_token}
+
+
+def connected_inbox(tmp_path, monkeypatch, pages):
+    """Start a consented fake connection; listing and message opening remain explicit."""
+    isolate(tmp_path, monkeypatch)
+    state = {"account": "student@example.com", "pages": pages, "calls": []}
+
+    class FakeMailbox:
+        def profile(self):
+            return {"email_address": state["account"]}
+
+        def list_message_page(self, limit=20, page_token=None):
+            state["calls"].append(("list", limit, page_token))
+            result = state["pages"][page_token]
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        def fetch_eml(self, message_id):
+            state["calls"].append(("fetch", message_id))
+            message = EmailMessage()
+            message["From"] = "teacher@example.com"
+            message["Subject"] = message_id
+            message["Date"] = "Fri, 9 Oct 2026 10:00:00 +0800"
+            message.set_content("Please submit the report by October 15 at 17:00.")
+            return message.as_bytes()
+
+        def close(self):
+            pass
+
+    def fake_connect(credentials_path, token_path, interactive=False):
+        state["calls"].append(("connect", interactive))
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text("{}", encoding="utf-8")
+        return FakeMailbox()
+
+    monkeypatch.setattr(gmail, "connect", fake_connect)
+    app = checked(AppTest.from_file(str(APP)))
+    assert state["calls"] == []
+    assert find(app.selectbox, "Messages per batch").value == 20
+    find(app.checkbox, "Allow StudentFlow to read my Gmail messages.").check()
+    checked(app)
+    assert state["calls"] == []
+    find(app.button, "Connect Gmail").click()
+    checked(app)
+    assert state["calls"] == [("connect", True)]
+    return app, state
+
+
+def test_load_more_exceeds_twenty_deduplicates_and_preserves_selection(tmp_path, monkeypatch):
+    app, state = connected_inbox(tmp_path, monkeypatch, {
+        None: page(message_headers(1, 20), "second-page"),
+        "second-page": page(message_headers(20, 39), "final-page"),
+        "final-page": page(message_headers(40, 41)),
+    })
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    assert len(find(app.selectbox, "Choose a message").options) == 20
+    assert ("list", 20, None) in state["calls"]
+    find(app.selectbox, "Choose a message").select("message007")
+    checked(app)
+    calls_before = list(state["calls"])
+    checked(app)
+    assert state["calls"] == calls_before
+
+    find(app.button, "Load more").click()
+    checked(app)
+    selector = find(app.selectbox, "Choose a message")
+    assert len(selector.options) == 39
+    assert selector.value == "message007"
+    assert ("list", 20, "second-page") in state["calls"]
+    find(app.button, "Load more").click()
+    checked(app)
+    assert len(find(app.selectbox, "Choose a message").options) == 41
+    assert find(app.selectbox, "Choose a message").value == "message007"
+    assert ("list", 20, "final-page") in state["calls"]
+    assert not any(button.label == "Load more" for button in app.button)
+    assert not any(call[0] == "fetch" for call in state["calls"])
+
+    # A message outside the first batch can be opened using its stable Gmail ID.
+    find(app.selectbox, "Choose a message").select("message041")
+    checked(app)
+    assert not any(call[0] == "fetch" for call in state["calls"])
+    find(app.button, "Open message").click()
+    checked(app)
+    assert ("fetch", "message041") in state["calls"]
+
+
+def test_failed_load_more_can_retry_without_losing_messages_or_cursor(tmp_path, monkeypatch):
+    app, state = connected_inbox(tmp_path, monkeypatch, {
+        None: page(message_headers(1, 20), "retry-page"),
+        "retry-page": gmail.GmailError("The inbox could not be loaded. Try again."),
+    })
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    find(app.selectbox, "Choose a message").select("message009")
+    checked(app)
+    options_before = find(app.selectbox, "Choose a message").options
+    find(app.button, "Load more").click()
+    checked(app)
+    assert any("Try again" in error.value for error in app.error)
+    assert find(app.selectbox, "Choose a message").options == options_before
+    assert find(app.selectbox, "Choose a message").value == "message009"
+    assert not find(app.button, "Load more").disabled
+
+    state["pages"]["retry-page"] = page(message_headers(21, 25))
+    calls_before = list(state["calls"])
+    find(app.selectbox, "Messages per batch").select(5)
+    checked(app)
+    assert state["calls"] == calls_before
+    find(app.button, "Load more").click()
+    checked(app)
+    assert state["calls"][-1] == ("list", 5, "retry-page")
+    assert len(find(app.selectbox, "Choose a message").options) == 25
+    assert find(app.selectbox, "Choose a message").value == "message009"
+    assert not any(button.label == "Load more" for button in app.button)
+    assert not any(call[0] == "fetch" for call in state["calls"])
+
+
+def test_refresh_and_reconnect_start_a_new_pagination_sequence(tmp_path, monkeypatch):
+    app, state = connected_inbox(tmp_path, monkeypatch, {
+        None: page(message_headers(1, 20), "old-second"),
+        "old-second": page(message_headers(21, 40), "old-third"),
+    })
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    find(app.button, "Load more").click()
+    checked(app)
+    find(app.selectbox, "Choose a message").select("message030")
+    checked(app)
+    state["pages"][None] = page(message_headers(1, 20, prefix="fresh"), "fresh-second")
+    state["pages"]["fresh-second"] = page(message_headers(21, 21, prefix="fresh"))
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    assert state["calls"][-1] == ("list", 20, None)
+    assert len(find(app.selectbox, "Choose a message").options) == 20
+    assert find(app.selectbox, "Choose a message").value.startswith("fresh")
+    find(app.button, "Load more").click()
+    checked(app)
+    assert state["calls"][-1] == ("list", 20, "fresh-second")
+    assert len(find(app.selectbox, "Choose a message").options) == 21
+
+    # Connecting again clears the previous list rather than carrying its cursor.
+    find(app.button, "Connect Gmail").click()
+    checked(app)
+    assert not any(box.label == "Choose a message" for box in app.selectbox)
+    assert not any(button.label == "Load more" for button in app.button)
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    assert state["calls"][-1] == ("list", 20, None)
+    assert find(app.button, "Load more")
+    find(app.button, "Disconnect Gmail").click()
+    checked(app)
+    assert not any(box.label == "Choose a message" for box in app.selectbox)
+    assert not any(button.label == "Load more" for button in app.button)
+    assert app.session_state["mails"] == {}
+    assert not (tmp_path / "records" / "auth" / "gmail_token.json").exists()
+    find(app.button, "Connect Gmail").click()
+    checked(app)
+    assert not any(box.label == "Choose a message" for box in app.selectbox)
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    assert state["calls"][-1] == ("list", 20, None)
+
+
+@pytest.mark.parametrize("action", ["Load more", "Open message"])
+def test_account_change_clears_old_messages_before_listing_or_opening(tmp_path, monkeypatch, action):
+    app, state = connected_inbox(tmp_path, monkeypatch, {
+        None: page(message_headers(1, 20), "old-account-page"),
+    })
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    find(app.button, "Open message").click()
+    checked(app)
+    assert len(app.session_state["mails"]) == 1
+    state["account"] = "different@example.com"
+    state["pages"][None] = page(message_headers(1, 2, prefix="different"))
+    calls_before = [call for call in state["calls"] if call[0] in ("list", "fetch")]
+    find(app.button, action).click()
+    checked(app)
+    assert any("account" in error.value.lower() and "refresh" in error.value.lower() for error in app.error)
+    assert [call for call in state["calls"] if call[0] in ("list", "fetch")] == calls_before
+    assert not any(box.label == "Choose a message" for box in app.selectbox)
+    assert not any(button.label == "Load more" for button in app.button)
+    assert app.session_state["mails"] == {}
+    assert not any(area.label == "Message" for area in app.text_area)
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    assert state["calls"][-1] == ("list", 20, None)
+    assert len(find(app.selectbox, "Choose a message").options) == 2
+    assert find(app.selectbox, "Choose a message").value.startswith("different")

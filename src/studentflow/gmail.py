@@ -25,6 +25,7 @@ AUTH_URIS = {
 MAX_EMAIL_BYTES = 20 * 1024 * 1024
 MAX_RAW_CHARS = 4 * ((MAX_EMAIL_BYTES + 2) // 3)
 MAX_JSON_BYTES = MAX_RAW_CHARS + 64 * 1024
+MAX_PAGE_TOKEN_CHARS = 4096
 _MESSAGE_ID = re.compile(r"[A-Za-z0-9_-]{1,256}\Z")
 
 
@@ -175,6 +176,18 @@ def _validate_message_id(message_id: str) -> str:
     return message_id
 
 
+def _validate_page_token(page_token: Any) -> str:
+    """Keep Gmail cursors opaque; validate shape without decoding or rewriting."""
+    if (
+        not isinstance(page_token, str)
+        or not page_token.strip()
+        or len(page_token) > MAX_PAGE_TOKEN_CHARS
+        or any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in page_token)
+    ):
+        raise GmailError("The inbox page could not be read. Refresh the inbox.")
+    return page_token
+
+
 class GmailMailbox:
     """Small read-only Gmail API client; injectable session enables offline tests."""
 
@@ -227,11 +240,24 @@ class GmailMailbox:
         return {"email_address": address}
 
     def list_messages(self, limit: int = 5) -> list[dict]:
+        """Return the first page of headers for existing callers."""
+        return self.list_message_page(limit)["messages"]
+
+    def list_message_page(self, limit: int = 20, page_token: str | None = None) -> dict:
+        """Read one inbox page of headers and its optional continuation cursor."""
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
             raise GmailError("Choose between 1 and 20 messages at a time.")
-        result = self._get_json("/messages", {
+        params = {
             "labelIds": "INBOX", "maxResults": limit, "includeSpamTrash": "false",
-        })
+        }
+        if page_token is not None:
+            params["pageToken"] = _validate_page_token(page_token)
+        result = self._get_json("/messages", params)
+        next_page_token = result.get("nextPageToken")
+        if next_page_token is None or next_page_token == "":
+            next_page_token = None
+        else:
+            next_page_token = _validate_page_token(next_page_token)
         messages = result.get("messages", [])
         if not isinstance(messages, list) or len(messages) > limit:
             raise GmailError("The inbox list could not be read. Refresh the inbox.")
@@ -256,7 +282,7 @@ class GmailMailbox:
                 "id": message_id, "subject": selected.get("subject", "(No subject)"),
                 "sender": selected.get("from", ""), "sent_at": selected.get("date", ""),
             })
-        return output
+        return {"messages": output, "next_page_token": next_page_token}
 
     def fetch_eml(self, message_id: str) -> bytes:
         message_id = _validate_message_id(message_id)

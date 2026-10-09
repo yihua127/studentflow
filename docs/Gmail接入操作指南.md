@@ -24,7 +24,7 @@
 
 7. **在 StudentFlow 登录。**启动程序，打开 **Inbox (Gmail)**，展开 **Gmail connection**，勾选 **Allow StudentFlow to read my Gmail messages**，再点击 **Connect Gmail**。浏览器中选择已添加为测试用户的 Gmail，核对应用为自己刚创建的 StudentFlow，权限只有邮箱只读，再按页面允许的流程授权。若出现未验证提醒，先核对自己的应用配置和账号；若明确显示访问被阻止，则停止并记录错误，不使用陌生应用或他人的配置文件。
 
-8. **读取一封真实邮件。**回到程序，点击 **Refresh inbox**，先保留默认 5 封。在 **Choose a message** 选择一封，点击 **Open message**，在下方 **Message review** 检查正文和发送时间。附件在 **Attachments → Read attachments** 中查看。5 封是本次读取数量，授权本身并非只覆盖这 5 封邮件。
+8. **浏览和打开邮件。**回到程序，点击 **Refresh inbox**，默认加载 20 封。可在 **Messages per batch** 选择每批 5、10 或 20 封，点击 **Load more** 继续追加下一批，页面显示已加载数量。在 **Choose a message** 选择一封，点击 **Open message**，在下方 **Message review** 检查正文和发送时间。附件在 **Attachments → Read attachments** 中查看。再次点击 **Refresh inbox** 会从最新邮件重新加载列表。
 
 9. **继续任务流程。**没有模型 API 时，可以在 **Add a task** 中人工填写任务并确认 **Save task**，再到 **Study Plan** 添加自己的空闲时段和固定安排、生成计划。若要使用 AI 提取，需另行配置模型 API，展开 **Extract tasks with AI**，勾选向模型服务发送当前邮件的确认项后点击 **Extract tasks**；邮箱授权成功不会自动把邮件发给模型。
 

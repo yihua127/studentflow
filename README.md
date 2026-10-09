@@ -6,7 +6,7 @@ StudentFlow is a local productivity application that connects to Gmail, helps tu
 
 ## Use the app
 
-- **Inbox (Gmail):** connect an account, refresh the inbox and open selected messages.
+- **Inbox (Gmail):** connect an account, refresh the inbox, load more messages and open selected emails.
 - **Tasks:** review and save tasks with deadlines, estimated study time and supporting text.
 - **Study Plan:** enter available time and commitments, generate a draft, then confirm before saving.
 - **Attachments:** read PDF and Word attachments and search their source text.
@@ -37,7 +37,7 @@ Tasks can also be entered manually in the message review form.
 ## Data and permissions
 
 - Gmail connections use the `gmail.readonly` permission.
-- Choose 5, 10 or 20 messages to display. Opening a selected message loads its text and attachments.
+- Choose 5, 10 or 20 messages per batch. Select **Load more** to append the next batch, or **Refresh inbox** to start again with the latest messages. Opening a selected message loads its text and attachments.
 - Tasks, preferences, plans and sign-in data are stored locally in the `data/` directory.
 - Disconnecting removes the local Gmail sign-in and clears opened messages. Previously saved tasks remain.
 

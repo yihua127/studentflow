@@ -173,6 +173,54 @@ def render_message_review(store, api_key, model):
                 st.error(str(exc))
 
 
+def reset_inbox(clear_opened=False):
+    for key in (
+        "gmail_headers", "gmail_next_page_token", "gmail_page_tokens",
+        "gmail_selected_message", "gmail_notice",
+    ):
+        st.session_state.pop(key, None)
+    if clear_opened:
+        st.session_state.mails = {}
+        st.session_state.candidates = {}
+        st.session_state.documents = []
+        st.session_state.pop("active_mail", None)
+        st.session_state.pop("review_message", None)
+
+
+def load_inbox_page(credential_path, token_path, count, append=False):
+    cursor = st.session_state.get("gmail_next_page_token") if append else None
+    if append and not cursor:
+        return
+    previous_profile = st.session_state.get("gmail_profile")
+    with closing(connect(credential_path, token_path)) as mailbox:
+        profile = mailbox.profile()
+        if previous_profile != profile:
+            reset_inbox(clear_opened=True)
+            st.session_state.gmail_profile = profile
+            if append:
+                st.session_state.gmail_notice = "The signed-in account changed. Refresh the inbox to continue."
+                st.rerun()
+        page = mailbox.list_message_page(count, page_token=cursor)
+
+    consumed = set(st.session_state.get("gmail_page_tokens", [])) if append else set()
+    if cursor:
+        consumed.add(cursor)
+    next_cursor = page["next_page_token"]
+    if next_cursor and next_cursor in consumed:
+        raise GmailError("The inbox could not advance. Refresh the inbox and try again.")
+
+    # Apply the entire batch only after it succeeds, so failures remain retryable.
+    existing = st.session_state.get("gmail_headers", []) if append else []
+    by_id = {message["id"]: message for message in existing}
+    by_id.update({message["id"]: message for message in page["messages"]})
+    if not append:
+        reset_inbox()
+    st.session_state.gmail_profile = profile
+    st.session_state.gmail_headers = list(by_id.values())
+    st.session_state.gmail_next_page_token = next_cursor
+    st.session_state.gmail_page_tokens = consumed
+
+
 def render_inbox(store, data_dir, api_key, model):
     st.subheader("Inbox")
     st.caption("Open a message and turn it into a task.")
@@ -193,8 +241,8 @@ def render_inbox(store, data_dir, api_key, model):
         consent = st.checkbox("Allow StudentFlow to read my Gmail messages.", key="gmail_consent")
         st.caption("Read-only access. Messages are not sent, deleted or marked as read.")
         if st.button("Connect Gmail", disabled=not credential_path.is_file() or not consent):
+            reset_inbox(clear_opened=True)
             st.session_state.pop("gmail_profile", None)
-            st.session_state.pop("gmail_headers", None)
             try:
                 with st.spinner("Complete Google sign-in in the browser, then return here..."):
                     with closing(connect(credential_path, token_path, interactive=True)) as mailbox:
@@ -204,46 +252,72 @@ def render_inbox(store, data_dir, api_key, model):
                 st.error(str(exc))
         if token_path.is_file() and st.button("Disconnect Gmail"):
             token_path.unlink(missing_ok=True)
-            for key in ("gmail_profile", "gmail_headers", "mails", "candidates", "documents", "active_mail"):
-                st.session_state.pop(key, None)
+            reset_inbox(clear_opened=True)
+            st.session_state.pop("gmail_profile", None)
             st.session_state.gmail_signed_out = True
             st.rerun()
         if token_path.is_file():
             st.caption("Disconnecting clears the saved sign-in on this device. Saved tasks remain available.")
     if st.session_state.pop("gmail_signed_out", False):
         st.success("Gmail disconnected from this device.")
+    notice = st.session_state.pop("gmail_notice", None)
+    if notice:
+        st.error(notice)
     count_col, button_col = st.columns([1, 3], vertical_alignment="bottom")
     with count_col:
-        count = st.selectbox("Messages to show", [5, 10, 20])
+        count = st.selectbox("Messages per batch", [5, 10, 20], index=2, key="gmail_batch_size")
     with button_col:
         if st.button("Refresh inbox", disabled=not consent or not token_path.is_file(), type="primary"):
-            st.session_state.pop("gmail_headers", None)
             try:
                 with st.spinner("Loading inbox..."):
-                    with closing(connect(credential_path, token_path)) as mailbox:
-                        st.session_state.gmail_profile = mailbox.profile()
-                        st.session_state.gmail_headers = mailbox.list_messages(count)
+                    load_inbox_page(credential_path, token_path, count)
+            except GmailError as exc:
+                st.error(str(exc))
+    if st.session_state.get("gmail_next_page_token"):
+        if st.button("Load more", disabled=not consent or not token_path.is_file()):
+            try:
+                with st.spinner("Loading more messages..."):
+                    load_inbox_page(credential_path, token_path, count, append=True)
+                st.rerun()
             except GmailError as exc:
                 st.error(str(exc))
     headers = st.session_state.get("gmail_headers", [])
+    if "gmail_headers" in st.session_state:
+        st.caption(f"{len(headers)} message(s) loaded.")
+        if headers and "gmail_next_page_token" not in st.session_state:
+            st.caption("Refresh the inbox to continue browsing.")
+        elif headers and not st.session_state.get("gmail_next_page_token"):
+            st.caption("All inbox messages loaded.")
     if headers:
-        choice = st.selectbox(
-            "Choose a message", headers,
-            format_func=lambda item: f"{item['subject']} — {item['sender']}",
+        by_id = {message["id"]: message for message in headers}
+        selected = st.session_state.get("gmail_selected_message")
+        if selected not in by_id:
+            st.session_state.pop("gmail_selected_message", None)
+        message_id = st.selectbox(
+            "Choose a message", list(by_id),
+            format_func=lambda mid: f"{by_id[mid]['subject']} — {by_id[mid]['sender']}",
+            key="gmail_selected_message",
         )
         if st.button("Open message", disabled=not consent):
             try:
                 with st.spinner("Opening message and attachments..."):
                     with closing(connect(credential_path, token_path)) as mailbox:
-                        if mailbox.profile() != st.session_state.get("gmail_profile"):
-                            raise GmailError("The signed-in account changed. Refresh the inbox before opening a message.")
-                        raw = mailbox.fetch_eml(choice["id"])
-                        open_message(raw, choice["id"])
+                        current_profile = mailbox.profile()
+                        if current_profile != st.session_state.get("gmail_profile"):
+                            reset_inbox(clear_opened=True)
+                            st.session_state.gmail_profile = current_profile
+                            st.session_state.gmail_notice = "The signed-in account changed. Refresh the inbox to continue."
+                            st.rerun()
+                        raw = mailbox.fetch_eml(message_id)
+                        open_message(raw, message_id)
                 st.session_state.pop("review_message", None)
             except (GmailError, ValueError) as exc:
                 st.error(str(exc))
     elif "gmail_headers" in st.session_state:
-        st.info("No messages in the inbox. Refresh after a new message arrives.")
+        if st.session_state.get("gmail_next_page_token"):
+            st.info("Choose Load more to continue browsing the inbox.")
+        else:
+            st.info("No messages in the inbox. Refresh after a new message arrives.")
     elif not token_path.is_file():
         st.info("Connect Gmail to view your inbox.")
     else:

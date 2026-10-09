@@ -4,6 +4,8 @@
 
 Connect Gmail, refresh the inbox, select a message and choose **Open message**. Review the message text before creating a task. Messages and attachments are opened locally. AI extraction sends the selected message's subject, text and date to the configured model after your consent.
 
+The inbox starts with 20 messages per batch. Choose 5, 10 or 20 under **Messages per batch**, and select **Load more** to add the next batch to the list. The loaded count shows how many messages are available to browse. **Refresh inbox** starts a fresh list with the latest messages.
+
 To add a task, enter a name, a deadline in Singapore time, an estimated study duration and a matching passage from the message. Confirm the review and select **Save task**. Tasks with a deadline and estimated duration are saved as **Confirmed** and can be included in a study plan. Incomplete tasks are saved as **Needs details** for further review. Saving the same task name from the same message updates that record.
 
 AI extraction is optional. If configured, **Extract tasks with AI** offers suggestions for review. Select **Use this suggestion** to fill the task form, review the details, then select **Save task**. Original message quotations retain their original language.
