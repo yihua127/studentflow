@@ -4,7 +4,7 @@
 
 Connect Gmail once on your device. StudentFlow restores the saved connection when you reopen the window or restart the app, and shows **Gmail connected**. Select **Switch account** to use another account or **Disconnect Gmail** to sign out of this device.
 
-Refresh the inbox, select a message and choose **Open message**. Review the message text before creating a task. Messages and attachments are opened locally. AI extraction sends the selected message's subject, text and date to the configured model after your consent.
+In **Task extraction**, refresh the inbox and choose one or more messages. Select **View selected messages** to read their text and load attachments locally. AI extraction sends the selected messages' subjects, text and dates to the configured model after your consent.
 
 If the connection is temporarily unavailable, select **Retry connection**. If Google requires renewed authorization, select **Reconnect Gmail** to sign in again.
 
@@ -12,17 +12,15 @@ The inbox starts with 20 messages per batch. Choose 5, 10 or 20 under **Messages
 
 To add a task, enter a name, a deadline in Singapore time, an estimated study duration and a matching passage from the message. Confirm the review and select **Save task**. Tasks with a deadline and estimated duration are saved as **Confirmed** and can be included in a study plan. Incomplete tasks are saved as **Needs details** for further review. Saving the same task name from the same message updates that record.
 
-AI extraction is optional. If configured, **Extract tasks with AI** offers suggestions for review. Select **Use this suggestion** to fill the task form, review the details, then select **Save task**. Original message quotations retain their original language.
+### Extract tasks
 
-### Extract tasks from several messages
-
-1. Refresh the inbox and use **Load more** to include older messages if needed.
-2. Expand **Batch task extraction** and choose the messages to analyze. Select as few or as many of the loaded messages as needed.
-3. Allow the selected messages' subject, text and date to be sent to OpenAI, then select **Extract selected messages**.
+1. In **Task extraction**, refresh the inbox and use **Load more** to include older messages if needed.
+2. Choose one or more messages under **Messages to analyze**. The same selection is used for viewing messages and extracting tasks.
+3. Allow the selected messages' subjects, text and dates to be sent to OpenAI, then select **Extract tasks**.
 4. Review each suggestion, including its source message and supporting text. Edit task names, deadlines and study durations, and check **Include** for the tasks to save.
 5. Confirm that the selected tasks have been reviewed, then select **Save selected tasks**. View the saved tasks in **Tasks**.
 
-The results show progress and any messages that need another attempt. Successful extractions are reused in the current session for the same message and model. Each selected task is checked before the group is saved.
+The results show progress and any messages that need another attempt. Successful extractions are reused in the current session for the same message and model. Each selected task is checked before the group is saved. Original message quotations retain their original language.
 
 ## Tasks
 

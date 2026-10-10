@@ -229,15 +229,15 @@ def test_ui_requires_explicit_selection_consent_and_bulk_review(tmp_path, monkey
     checked()
     assert calls == []
     assert app.multiselect(key="batch_selected").value == []
-    assert button("Extract selected messages").disabled
+    assert button("Extract tasks").disabled
     button("Select all loaded").click()
     checked()
     assert calls == []
     assert app.multiselect(key="batch_selected").value == ["a", "b"]
     app.checkbox(key="batch_consent").check()
     checked()
-    assert not button("Extract selected messages").disabled
-    button("Extract selected messages").click()
+    assert not button("Extract tasks").disabled
+    button("Extract tasks").click()
     checked()
     assert len([call for call in calls if call[0] == "extract"]) == 2
     assert Store(tmp_path / "tasks.sqlite3").tasks() == []
@@ -264,4 +264,79 @@ def test_ui_requires_explicit_selection_consent_and_bulk_review(tmp_path, monkey
     app.multiselect(key="batch_selected").set_value(["a"])
     checked()
     assert app.checkbox(key="batch_consent").value is False
+
+
+def test_view_selected_messages_without_api_or_consent_reuses_opened_mail(tmp_path, monkeypatch):
+    monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
+    calls = setup_fakes(monkeypatch)
+    app = AppTest.from_string(APP_SOURCE.replace("'test-key', 'model-test'", "'', ''"))
+    app.run(timeout=30)
+    assert not app.exception and not app.expander
+    assert calls == []
+    assert app.button(key="batch_view").disabled
+    app.multiselect(key="batch_selected").set_value(["b", "a"])
+    app.run(timeout=30)
+    assert not app.exception and calls == []
+    assert not app.button(key="batch_view").disabled
+    assert app.button(key="batch_extract").disabled
+    assert app.checkbox(key="batch_consent").value is False
+    app.session_state["review_message"] = "old-message"
+    app.button(key="batch_view").click()
+    app.run(timeout=30)
+    assert not app.exception
+    assert [call for call in calls if call[0] == "fetch"] == [("fetch", "b"), ("fetch", "a")]
+    assert not any(call[0] == "extract" for call in calls)
+    assert app.session_state["mails"][app.session_state["active_mail"]]["gmail_id"] == "b"
+    assert "review_message" not in app.session_state
+    assert app.session_state["candidates"] == {}
+    assert Store(tmp_path / "tasks.sqlite3").tasks() == []
+    calls.clear()
+    app.button(key="batch_view").click()
+    app.run(timeout=30)
+    assert not app.exception
+    assert calls == [("profile",), ("close",)]
+
+
+def test_view_keeps_successful_messages_and_sanitizes_partial_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
+    calls = setup_fakes(monkeypatch, fetch_failure=("a", GmailError("private request detail")))
+    app = AppTest.from_string(APP_SOURCE)
+    app.run(timeout=30)
+    app.multiselect(key="batch_selected").set_value(["a", "b"])
+    app.run(timeout=30)
+    app.button(key="batch_view").click()
+    app.run(timeout=30)
+    assert not app.exception
+    assert len(app.session_state["mails"]) == 1
+    assert app.session_state["mails"][app.session_state["active_mail"]]["gmail_id"] == "b"
+    assert any("could not be opened" in error.value for error in app.error)
+    assert not any("private request detail" in error.value for error in app.error)
+    assert not any(call[0] == "extract" for call in calls)
+
+
+def test_view_account_mismatch_clears_old_messages_and_requires_reconnect(tmp_path, monkeypatch):
+    monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
+    calls = setup_fakes(monkeypatch, profile={"email_address": "different@example.com"})
+    app = AppTest.from_string(APP_SOURCE)
+    app.run(timeout=30)
+    app.session_state["mails"] = {"previous": {"gmail_id": "a", "gmail_account": PROFILE["email_address"], "provider": "gmail"}}
+    app.multiselect(key="batch_selected").set_value(["a"])
+    app.run(timeout=30)
+    app.button(key="batch_view").click()
+    app.run(timeout=30)
+    assert not app.exception
+    assert app.session_state["mails"] == {}
+    assert app.session_state["gmail_auth_required"] is True
+    assert "Reconnect Gmail" in app.session_state["gmail_connection_error"]
+    assert not any(call[0] in {"fetch", "extract"} for call in calls)
+
+
+def test_empty_inbox_guides_refresh_without_network_or_ai(tmp_path, monkeypatch):
+    monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
+    calls = setup_fakes(monkeypatch)
+    app = AppTest.from_string(APP_SOURCE.replace("for value in ['a', 'b']", "for value in []"))
+    app.run(timeout=30)
+    assert not app.exception
+    assert any(info.value == "Refresh the inbox to choose messages." for info in app.info)
+    assert not app.multiselect and calls == []
 

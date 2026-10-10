@@ -39,9 +39,9 @@ Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to create a desktop OAuth cl
 
 Open **Settings**, enter an OpenAI API key, choose a model and select **Save AI settings**. Select **Test AI connection** to check the saved configuration with a short example. Settings are stored in the local `.env` file. See the [OpenAI setup guide](docs/OPENAI_SETUP.md) for billing and API key steps.
 
-Task extraction uses LangChain and the selected OpenAI model. In **Batch task extraction**, select messages, give consent and choose **Extract selected messages**. Review the suggestions together, edit their details and select the tasks to save. Each task retains its source message and supporting text. Successful results are reused within the current session when retrying the same messages with the same model.
+Task extraction uses LangChain and the selected OpenAI model. In **Task extraction**, refresh the inbox, select one or more messages, give consent and choose **Extract tasks**. Review the suggestions together, edit their details and select the tasks to save. Each task retains its source message and supporting text. Successful results are reused within the current session when retrying the same messages with the same model.
 
-Tasks can also be entered manually in the message review form.
+Select **View selected messages** to read the chosen messages and load their attachments. Tasks can also be entered manually in the message review form.
 
 ## Data and permissions
 

@@ -17,7 +17,6 @@ from studentflow.ai_settings import DEFAULT_MODEL, read_ai_settings, render_ai_s
 from studentflow.attachments import extract_attachment
 from studentflow.batch_ui import clear_batch_state, render_batch_extraction
 from studentflow.gmail import GmailAuthError, GmailError, connect
-from studentflow.ingestion import parse_eml_bytes
 from studentflow.planning_ui import render_planner
 from studentflow.retrieval import build_chunks, search_chunks
 from studentflow.storage import Store
@@ -52,19 +51,8 @@ def available_messages():
     }
 
 
-def open_message(raw, message_id):
-    mail = parse_eml_bytes(raw, "Gmail / " + message_id)
-    mail["imported_at"] = datetime.now(ZONE).isoformat()
-    mail["provider"] = "gmail"
-    mail["gmail_id"] = message_id
-    mail["gmail_account"] = st.session_state.get("gmail_profile", {}).get("email_address", "").casefold()
-    existed = mail["id"] in st.session_state.mails
-    st.session_state.mails[mail["id"]] = mail
-    st.session_state.active_mail = mail["id"]
-    return existed
 
-
-def render_message_review(store, api_key, model):
+def render_message_review(store):
     mails = available_messages()
     if not mails:
         return
@@ -84,51 +72,6 @@ def render_message_review(store, api_key, model):
     st.text_area("Message", mail["body"], height=210, disabled=True, key="body_" + mid)
     show_warnings(mail["warnings"])
     st.caption(f"{len(mail['attachments'])} attachment(s)")
-
-    with st.expander("Extract tasks with AI"):
-        if not api_key or not model:
-            st.info("Add an OpenAI API key in Settings to enable AI extraction.")
-        allow_model = st.checkbox(
-            "Allow this message's subject, text and date to be sent to OpenAI for task extraction. Usage charges may apply.",
-            key="allow_model_" + mid,
-        )
-        if st.button("Extract tasks", disabled=not (api_key and model and allow_model)):
-            from studentflow.extraction import extract_tasks
-
-            try:
-                with st.spinner("Finding tasks in this message..."):
-                    result = extract_tasks(
-                        mail["body"], mail["subject"], mail["sent_at"], api_key, model
-                    )
-                st.session_state.candidates[mid] = result
-            except Exception:
-                st.error("Task extraction could not be completed. Check the AI connection or add the task manually.")
-        candidates = st.session_state.candidates.get(mid)
-        if candidates:
-            show_warnings(candidates.get("warnings", []))
-            if not candidates.get("tasks"):
-                st.info("No actionable tasks were found. A task can still be added manually.")
-            for index, candidate in enumerate(candidates.get("tasks", []), 1):
-                with st.container(border=True):
-                    st.write(f"**{candidate['title']}**")
-                    st.caption(f"Deadline: {display_time(candidate.get('due_at'))}")
-                    if candidate.get("estimated_minutes"):
-                        st.caption(f"Estimated study time: {candidate['estimated_minutes']} minutes")
-                    if candidate.get("source_quote"):
-                        st.text(candidate["source_quote"])
-                    show_warnings(candidate.get("needs_clarification", []))
-                    if st.button("Use this suggestion", key=f"use_{mid}_{index}"):
-                        prefix = "task_" + mid
-                        st.session_state[prefix + "_title"] = candidate["title"]
-                        due = candidate.get("due_at")
-                        st.session_state[prefix + "_due"] = (
-                            datetime.fromisoformat(due).astimezone(ZONE).strftime("%Y-%m-%d %H:%M")
-                            if due else ""
-                        )
-                        st.session_state[prefix + "_minutes"] = int(candidate.get("estimated_minutes") or 0)
-                        st.session_state[prefix + "_quote"] = candidate.get("source_quote", "")
-                        st.session_state[prefix + "_reviewed"] = False
-                        st.rerun()
 
     prefix = "task_" + mid
     with st.form("confirm_" + mid):
@@ -253,7 +196,7 @@ def load_inbox_page(credential_path, token_path, count, append=False):
 
 def render_inbox(store, data_dir, api_key, model):
     st.subheader("Inbox")
-    st.caption("Open a message and turn it into a task.")
+    st.caption("Turn selected messages into reviewed tasks.")
     credential_path = Path(os.environ.get("STUDENTFLOW_GMAIL_CLIENT", str(ROOT / "credentials" / "gmail_client.json")))
     token_path = data_dir / "auth" / "gmail_token.json"
     saved_sign_in = token_path.is_file()
@@ -323,75 +266,47 @@ def render_inbox(store, data_dir, api_key, model):
     notice = st.session_state.pop("gmail_notice", None)
     if notice:
         st.error(notice)
-    count_col, button_col = st.columns([1, 3], vertical_alignment="bottom")
     ready = bool(st.session_state.get("gmail_profile") and consent and token_path.is_file())
-    with count_col:
-        count = st.selectbox("Messages per batch", [5, 10, 20], index=2, key="gmail_batch_size")
-    with button_col:
-        if st.button("Refresh inbox", disabled=not ready, type="primary"):
-            try:
-                with st.spinner("Loading inbox..."):
-                    load_inbox_page(credential_path, token_path, count)
-            except GmailError as exc:
-                show_gmail_error(exc)
-    if st.session_state.get("gmail_next_page_token"):
-        if st.button("Load more", disabled=not ready):
-            try:
-                with st.spinner("Loading more messages..."):
-                    load_inbox_page(credential_path, token_path, count, append=True)
-                st.rerun()
-            except GmailError as exc:
-                show_gmail_error(exc)
-    headers = st.session_state.get("gmail_headers", [])
-    if "gmail_headers" in st.session_state:
-        st.caption(f"{len(headers)} message(s) loaded.")
-        if headers and "gmail_next_page_token" not in st.session_state:
-            st.caption("Refresh the inbox to continue browsing.")
-        elif headers and not st.session_state.get("gmail_next_page_token"):
-            st.caption("All inbox messages loaded.")
-    if headers:
-        by_id = {message["id"]: message for message in headers}
-        selected = st.session_state.get("gmail_selected_message")
-        if selected not in by_id:
-            st.session_state.pop("gmail_selected_message", None)
-        message_id = st.selectbox(
-            "Choose a message", list(by_id),
-            format_func=lambda mid: f"{by_id[mid]['subject']} — {by_id[mid]['sender']}",
-            key="gmail_selected_message",
-        )
-        if st.button("Open message", disabled=not ready):
-            try:
-                with st.spinner("Opening message and attachments..."):
-                    with closing(connect(credential_path, token_path)) as mailbox:
-                        current_profile = mailbox.profile()
-                        if current_profile != st.session_state.get("gmail_profile"):
-                            reset_inbox(clear_opened=True)
-                            st.session_state.gmail_profile = current_profile
-                            st.session_state.gmail_notice = "The signed-in account changed. Refresh the inbox to continue."
-                            st.rerun()
-                        raw = mailbox.fetch_eml(message_id)
-                        open_message(raw, message_id)
-                st.session_state.pop("review_message", None)
-            except (GmailError, ValueError) as exc:
-                show_gmail_error(exc)
-    elif "gmail_headers" in st.session_state:
+    with st.expander("Task extraction", expanded=True):
+        count_col, button_col = st.columns([1, 3], vertical_alignment="bottom")
+        with count_col:
+            count = st.selectbox("Messages per batch", [5, 10, 20], index=2, key="gmail_batch_size")
+        with button_col:
+            if st.button("Refresh inbox", disabled=not ready):
+                try:
+                    with st.spinner("Loading inbox..."):
+                        load_inbox_page(credential_path, token_path, count)
+                except GmailError as exc:
+                    show_gmail_error(exc)
         if st.session_state.get("gmail_next_page_token"):
-            st.info("Choose Load more to continue browsing the inbox.")
-        else:
-            st.info("No messages in the inbox. Refresh after a new message arrives.")
-    elif not token_path.is_file():
-        st.info("Connect Gmail to view your inbox.")
-    else:
-        st.caption("Refresh the inbox to load messages.")
-    render_batch_extraction(headers, credential_path, token_path, store, api_key, model, ready)
-    render_message_review(store, api_key, model)
+            if st.button("Load more", disabled=not ready):
+                try:
+                    with st.spinner("Loading more messages..."):
+                        load_inbox_page(credential_path, token_path, count, append=True)
+                    st.rerun()
+                except GmailError as exc:
+                    show_gmail_error(exc)
+        headers = st.session_state.get("gmail_headers", [])
+        if "gmail_headers" in st.session_state:
+            st.caption(f"{len(headers)} message(s) loaded.")
+            if headers and not st.session_state.get("gmail_next_page_token"):
+                st.caption("All inbox messages loaded.")
+            elif not headers and not st.session_state.get("gmail_next_page_token"):
+                st.info("No messages in the inbox. Refresh after a new message arrives.")
+        elif not token_path.is_file():
+            st.info("Connect Gmail to view your inbox.")
+        # A refresh may have discovered a different account.
+        ready = bool(st.session_state.get("gmail_profile") and consent and token_path.is_file())
+        render_batch_extraction(headers, credential_path, token_path, store, api_key, model, ready)
+    render_message_review(store)
+
 
 
 def render_tasks(tasks):
     st.subheader("Tasks")
     st.caption("Review confirmed tasks and complete any missing details before planning.")
     if not tasks:
-        st.info("No tasks yet. Open a message in Inbox (Gmail) and save a task.")
+        st.info("No tasks yet. Select messages in Inbox (Gmail) to extract or add tasks.")
         return
     rows = [{
         "Task": task["title"], "Deadline": display_time(task.get("due_at")),

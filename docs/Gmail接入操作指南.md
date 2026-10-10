@@ -26,9 +26,9 @@
 
    登录后，关闭窗口或重启程序都会保留本机授权，再次打开时自动恢复并显示 **Gmail connected**。**Switch account** 用于切换账号，**Disconnect Gmail** 用于退出本机登录。临时连接失败时点击 **Retry connection**；Google 要求重新授权时点击 **Reconnect Gmail**。
 
-8. **浏览和打开邮件。**回到程序，点击 **Refresh inbox**，默认加载 20 封。可在 **Messages per batch** 选择每批 5、10 或 20 封，点击 **Load more** 继续追加下一批，页面显示已加载数量。在 **Choose a message** 选择一封，点击 **Open message**，在下方 **Message review** 检查正文和发送时间。附件在 **Attachments → Read attachments** 中查看。再次点击 **Refresh inbox** 会从最新邮件重新加载列表。
+8. **浏览和打开邮件。**回到程序，在 **Task extraction** 中点击 **Refresh inbox**，默认加载 20 封。可在 **Messages per batch** 选择每批 5、10 或 20 封，点击 **Load more** 继续追加下一批，页面显示已加载数量。在 **Messages to analyze** 选择一封或多封，点击 **View selected messages**，在下方 **Message review** 检查正文和发送时间。附件在 **Attachments → Read attachments** 中查看。再次点击 **Refresh inbox** 会从最新邮件重新加载列表。
 
-9. **继续任务流程。**没有模型 API 时，可以在 **Add a task** 中人工填写任务并确认 **Save task**，再到 **Study Plan** 添加自己的空闲时段和固定安排、生成计划。若要使用 AI 提取，需另行配置模型 API，展开 **Extract tasks with AI**，勾选向模型服务发送当前邮件的确认项后点击 **Extract tasks**；邮箱授权成功不会自动把邮件发给模型。
+9. **继续任务流程。**可以在 **Add a task** 中人工填写任务并确认 **Save task**，再到 **Study Plan** 添加自己的空闲时段和固定安排、生成计划。使用 AI 提取前，在 **Settings** 配置模型 API；在 **Task extraction** 中选好邮件，勾选向模型发送所选邮件的授权后点击 **Extract tasks**，统一核对建议，勾选 **Include** 和核对确认项，再点击 **Save selected tasks**。
 
 10. **准备 10 月 16 日演示。**自己在邮箱网页中手动发送或接收一封专门用于演示的邮件，包含明确截止时间和一个 PDF／Word 附件。演示时从真实收件箱读取它，展示正文、附件、任务确认和计划。邮件可以是人为编写的测试内容，但应说明“测试邮件经真实邮箱接入”，不能称为真实业务评估数据。只有本人完成登录、列表读取和邮件导入，才记录为“真实邮箱接入已验证”。
 

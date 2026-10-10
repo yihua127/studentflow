@@ -19,7 +19,7 @@ Creating a Google Cloud project registers StudentFlow for Google sign-in. See Go
 2. Expand **Gmail connection**, check **Allow StudentFlow to read my Gmail messages**, and select **Connect Gmail**.
 3. Complete Google sign-in in the browser. Choose an account listed under Test users and review the read-only permission request.
 4. Return to StudentFlow and select **Refresh inbox**. Select **Load more** to continue browsing additional messages.
-5. Choose a message and select **Open message**. Its text and attachments are loaded for review.
+5. In **Task extraction**, choose one or more messages and select **View selected messages**. Their text and attachments are loaded for review. Select **Extract tasks** after giving AI consent to get task suggestions from the same selection.
 6. Add a task using a passage from the message as supporting text. Review it before selecting **Save task**.
 
 Your sign-in is saved on this device. Reopening StudentFlow restores the connection and displays **Gmail connected**. Use **Switch account** to select another Gmail account, or **Disconnect Gmail** to sign out. A temporary connection issue can be retried with **Retry connection**; **Reconnect Gmail** completes a new authorization when requested by Google.

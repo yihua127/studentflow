@@ -32,24 +32,17 @@ def extraction_key(account: str, mail: dict, model: str) -> str:
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
-def run_batch(
-    message_ids, credential_path, token_path, profile, mails, cache, candidates,
-    api_key, model, *, reanalyze=False, progress=None,
+def fetch_selected_messages(
+    message_ids, credential_path, token_path, profile, mails, *, progress=None,
 ):
-    """Verify the account, fetch sequentially, then analyze at most 3 mails at once.
-
-    Cached results are session-local and account/content/model scoped. Gmail is
-    never shared between workers. Auth failures stop before any new model call.
-    Individual message/model failures preserve other results for focused retries.
-    """
+    """Open selected messages after checking the account, without invoking AI."""
     account = str((profile or {}).get("email_address", "")).casefold()
     if not account:
-        raise GmailAuthError("Reconnect Gmail before analyzing messages.")
+        raise GmailAuthError("Reconnect Gmail before opening messages.")
     identifiers = list(dict.fromkeys(message_ids))
     if not identifiers:
         return []
-    results = {}
-    pending = {}
+    results = []
     with closing(connect(credential_path, token_path)) as mailbox:
         if mailbox.profile() != profile:
             raise GmailAuthError("The signed-in account changed. Reconnect Gmail to continue.")
@@ -59,7 +52,7 @@ def run_batch(
         }
         for number, message_id in enumerate(identifiers, start=1):
             if progress:
-                progress(0.4 * (number - 1) / len(identifiers), f"Opening message {number} of {len(identifiers)}...")
+                progress((number - 1) / len(identifiers), f"Opening message {number} of {len(identifiers)}...")
             try:
                 mail = opened.get(message_id)
                 if mail is None:
@@ -70,21 +63,52 @@ def run_batch(
                         "imported_at": datetime.now(ZONE).isoformat(),
                     })
                     mails[mail["id"]] = mail
-                key = extraction_key(account, mail, model)
-                entry = {"gmail_id": message_id, "mail_id": mail["id"], "cache_key": key}
-                if key in cache and not reanalyze:
-                    entry.update(result=cache[key], cached=True)
-                    results[message_id] = entry
-                    candidates[mail["id"]] = cache[key]
-                else:
-                    pending[message_id] = (mail, entry)
+                results.append({"gmail_id": message_id, "mail_id": mail["id"]})
             except GmailAuthError:
                 raise
             except Exception:
-                results[message_id] = {
+                results.append({
                     "gmail_id": message_id,
                     "error": "This message could not be opened. Select it again to retry.",
-                }
+                })
+    if progress:
+        progress(1.0, "Selected messages opened.")
+    return results
+
+
+def run_batch(
+    message_ids, credential_path, token_path, profile, mails, cache, candidates,
+    api_key, model, *, reanalyze=False, progress=None,
+):
+    """Verify and fetch first, then analyze at most 3 messages concurrently.
+
+    Cached results are session-local and account/content/model scoped. Gmail is
+    never shared between workers. Auth failures stop before any new model call.
+    Individual message/model failures preserve other results for focused retries.
+    """
+    opened = fetch_selected_messages(
+        message_ids, credential_path, token_path, profile, mails,
+        progress=(lambda value, text: progress(0.4 * value, text)) if progress else None,
+    )
+    if not opened:
+        return []
+    account = str(profile["email_address"]).casefold()
+    identifiers = [entry["gmail_id"] for entry in opened]
+    results, pending = {}, {}
+    for entry in opened:
+        message_id = entry["gmail_id"]
+        if "error" in entry:
+            results[message_id] = entry
+            continue
+        mail = mails[entry["mail_id"]]
+        key = extraction_key(account, mail, model)
+        entry["cache_key"] = key
+        if key in cache and not reanalyze:
+            entry.update(result=cache[key], cached=True)
+            results[message_id] = entry
+            candidates[mail["id"]] = cache[key]
+        else:
+            pending[message_id] = (mail, entry)
 
     completed = len(results)
     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -213,97 +237,126 @@ def render_batch_extraction(
     headers: list[dict], credential_path: Path, token_path: Path, store: Store,
     api_key: str, model: str, ready: bool,
 ) -> None:
-    with st.expander("Batch task extraction"):
-        st.caption("Select messages, extract task suggestions, then review and save the tasks you want to keep.")
-        by_id = {header["id"]: header for header in headers}
-        identifiers = list(by_id)
-        old_selection = st.session_state.get("batch_selected", [])
-        if any(identifier not in by_id for identifier in old_selection):
-            _select_messages([identifier for identifier in old_selection if identifier in by_id])
-        selected = st.multiselect(
-            "Messages to analyze", identifiers,
-            format_func=lambda identifier: f"{by_id[identifier]['subject'] or 'Untitled message'} — {by_id[identifier].get('sender', '')}",
-            key="batch_selected", on_change=_selection_changed,
-        )
-        left, right = st.columns(2)
-        left.button("Select all loaded", key="batch_all", disabled=not identifiers,
-                    on_click=_select_messages, args=(identifiers,), width="stretch")
-        right.button("Clear selection", key="batch_clear", disabled=not selected,
-                     on_click=_select_messages, args=([],), width="stretch")
-        st.caption(f"{len(selected)} message(s) selected.")
-        if not api_key or not model:
-            st.info("Add your OpenAI API key in Settings to extract tasks.")
-        consent = st.checkbox(
-            "Allow the selected messages' subjects, text and dates to be sent to OpenAI for task extraction. Usage charges may apply.",
-            key="batch_consent",
-        )
-        reanalyze = st.checkbox(
-            "Analyze completed messages again", key="batch_reanalyze",
-            help="By default, results from this session are reused for the same account, message and model. Repeating analysis may incur additional charges.",
-        )
-        if st.button("Extract selected messages", key="batch_extract", type="primary",
-                     disabled=not (ready and api_key and model and consent and selected)):
-            progress = st.progress(0.0, text="Opening selected messages...")
+    """Render the shared selection and extraction controls inside the inbox section."""
+    if not headers:
+        st.info("Refresh the inbox to choose messages.")
+        return
+    st.caption("Select one or more messages to view or extract tasks, then review and save the tasks you want to keep.")
+    by_id = {header["id"]: header for header in headers}
+    identifiers = list(by_id)
+    old_selection = st.session_state.get("batch_selected", [])
+    if any(identifier not in by_id for identifier in old_selection):
+        _select_messages([identifier for identifier in old_selection if identifier in by_id])
+    selected = st.multiselect(
+        "Messages to analyze", identifiers,
+        format_func=lambda identifier: f"{by_id[identifier]['subject'] or 'Untitled message'} — {by_id[identifier].get('sender', '')}",
+        key="batch_selected", on_change=_selection_changed,
+    )
+    left, right = st.columns(2)
+    left.button("Select all loaded", key="batch_all", disabled=not identifiers,
+                on_click=_select_messages, args=(identifiers,), width="stretch")
+    right.button("Clear selection", key="batch_clear", disabled=not selected,
+                 on_click=_select_messages, args=([],), width="stretch")
+    st.caption(f"{len(selected)} message(s) selected.")
+    if st.button("View selected messages", key="batch_view", disabled=not (ready and selected)):
+        with st.spinner("Opening selected messages..."):
             try:
-                cache = st.session_state.setdefault("batch_cache", {})
-                results = run_batch(
+                opened = fetch_selected_messages(
                     selected, credential_path, token_path, st.session_state.get("gmail_profile"),
-                    st.session_state.mails, cache, st.session_state.candidates, api_key, model,
-                    reanalyze=reanalyze, progress=lambda value, text: progress.progress(value, text=text),
+                    st.session_state.mails,
                 )
-                st.session_state.batch_results = results
-                st.session_state.batch_review_version = st.session_state.get("batch_review_version", 0) + 1
+                successful = [entry for entry in opened if "mail_id" in entry]
+                if successful:
+                    st.session_state.active_mail = successful[0]["mail_id"]
+                    st.session_state.pop("review_message", None)
+                    st.success(f"{len(successful)} message(s) ready in Message review below.")
+                for entry in opened:
+                    if "error" in entry:
+                        name = by_id[entry["gmail_id"]].get("subject") or "Message"
+                        st.error(f"{name}: {entry['error']}")
             except GmailAuthError:
                 _authentication_failed()
             except GmailError:
                 st.error("Gmail could not be reached. Try again when your connection is available.")
             except Exception:
-                st.error("The selected messages could not be processed. Try again.")
-            finally:
-                progress.empty()
+                st.error("The selected messages could not be opened. Try again.")
+    if not api_key or not model:
+        st.info("Add your OpenAI API key in Settings to extract tasks.")
+    consent = st.checkbox(
+        "Allow the selected messages' subjects, text and dates to be sent to OpenAI for task extraction. Usage charges may apply.",
+        key="batch_consent",
+    )
+    reanalyze = st.checkbox(
+        "Analyze completed messages again", key="batch_reanalyze",
+        help="By default, results from this session are reused for the same account, message and model. Repeating analysis may incur additional charges.",
+    )
+    if st.button("Extract tasks", key="batch_extract", type="primary",
+                 disabled=not (ready and api_key and model and consent and selected)):
+        progress = st.progress(0.0, text="Opening selected messages...")
+        try:
+            cache = st.session_state.setdefault("batch_cache", {})
+            results = run_batch(
+                selected, credential_path, token_path, st.session_state.get("gmail_profile"),
+                st.session_state.mails, cache, st.session_state.candidates, api_key, model,
+                reanalyze=reanalyze, progress=lambda value, text: progress.progress(value, text=text),
+            )
+            st.session_state.batch_results = results
+            st.session_state.batch_review_version = st.session_state.get("batch_review_version", 0) + 1
+            successful = [entry for entry in results if "mail_id" in entry]
+            if successful:
+                st.session_state.active_mail = successful[0]["mail_id"]
+                st.session_state.pop("review_message", None)
+        except GmailAuthError:
+            _authentication_failed()
+        except GmailError:
+            st.error("Gmail could not be reached. Try again when your connection is available.")
+        except Exception:
+            st.error("The selected messages could not be processed. Try again.")
+        finally:
+            progress.empty()
 
-        results = st.session_state.get("batch_results", [])
-        if not results:
-            return
-        for entry in results:
-            name = by_id.get(entry["gmail_id"], {}).get("subject") or "Message"
-            if "error" in entry:
-                st.error(f"{name}: {entry['error']}")
-            else:
-                count = len(entry["result"]["tasks"])
-                suffix = " Previous result reused." if entry.get("cached") else ""
-                st.caption(f"{name}: {count} task suggestion(s).{suffix}")
-                for warning in entry["result"].get("warnings", []):
-                    st.caption(warning)
-        rows, sources = review_rows(results, st.session_state.mails)
-        if not rows:
-            return
-        st.write("**Review task suggestions**")
-        st.caption("Check Include for each task to save. Edit names, deadlines and study time. Deadlines use Singapore time; leave unknown dates blank and unknown study time as 0.")
-        version = st.session_state.get("batch_review_version", 0)
-        with st.form(f"batch_review_form_{version}"):
-            edited = st.data_editor(
-                rows, hide_index=True, num_rows="fixed", width="stretch",
-                disabled=["Source message", "Review notes", "_row_id"],
-                column_config={
-                    "_row_id": None,
-                    "Include": st.column_config.CheckboxColumn("Include", default=False),
-                    "Deadline": st.column_config.TextColumn("Deadline", help="Singapore time: YYYY-MM-DD HH:MM"),
-                    "Study time (min)": st.column_config.NumberColumn(min_value=0, max_value=10000, step=15),
-                    "Supporting text": st.column_config.TextColumn(width="large"),
-                    "Review notes": st.column_config.TextColumn(width="large"),
-                }, key=f"batch_editor_{version}",
-            )
-            reviewed = st.checkbox(
-                "I have reviewed the selected tasks and their supporting text.", key=f"batch_reviewed_{version}",
-            )
-            if st.form_submit_button("Save selected tasks", type="primary"):
-                try:
-                    records = validate_selected_rows(edited, sources, reviewed)
-                    store.save_tasks(records)
-                    pending = sum(record["status"] == "pending" for record in records)
-                    st.success(f"Saved {len(records)} task(s)." + (f" {pending} marked as Needs details." if pending else ""))
-                except ValueError as exc:
-                    st.error(str(exc))
-                except Exception:
-                    st.error("The selected tasks could not be saved. Try again.")
+    results = st.session_state.get("batch_results", [])
+    if not results:
+        return
+    for entry in results:
+        name = by_id.get(entry["gmail_id"], {}).get("subject") or "Message"
+        if "error" in entry:
+            st.error(f"{name}: {entry['error']}")
+        else:
+            count = len(entry["result"]["tasks"])
+            suffix = " Previous result reused." if entry.get("cached") else ""
+            st.caption(f"{name}: {count} task suggestion(s).{suffix}")
+            for warning in entry["result"].get("warnings", []):
+                st.caption(warning)
+    rows, sources = review_rows(results, st.session_state.mails)
+    if not rows:
+        return
+    st.write("**Review task suggestions**")
+    st.caption("Check Include for each task to save. Edit names, deadlines and study time. Deadlines use Singapore time; leave unknown dates blank and unknown study time as 0.")
+    version = st.session_state.get("batch_review_version", 0)
+    with st.form(f"batch_review_form_{version}"):
+        edited = st.data_editor(
+            rows, hide_index=True, num_rows="fixed", width="stretch",
+            disabled=["Source message", "Review notes", "_row_id"],
+            column_config={
+                "_row_id": None,
+                "Include": st.column_config.CheckboxColumn("Include", default=False),
+                "Deadline": st.column_config.TextColumn("Deadline", help="Singapore time: YYYY-MM-DD HH:MM"),
+                "Study time (min)": st.column_config.NumberColumn(min_value=0, max_value=10000, step=15),
+                "Supporting text": st.column_config.TextColumn(width="large"),
+                "Review notes": st.column_config.TextColumn(width="large"),
+            }, key=f"batch_editor_{version}",
+        )
+        reviewed = st.checkbox(
+            "I have reviewed the selected tasks and their supporting text.", key=f"batch_reviewed_{version}",
+        )
+        if st.form_submit_button("Save selected tasks", type="primary"):
+            try:
+                records = validate_selected_rows(edited, sources, reviewed)
+                store.save_tasks(records)
+                pending = sum(record["status"] == "pending" for record in records)
+                st.success(f"Saved {len(records)} task(s)." + (f" {pending} marked as Needs details." if pending else ""))
+            except ValueError as exc:
+                st.error(str(exc))
+            except Exception:
+                st.error("The selected tasks could not be saved. Try again.")
