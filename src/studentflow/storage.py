@@ -17,6 +17,7 @@ class Store:
             db.execute("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS daily_reviews (day TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS deleted_task_ids (task_id TEXT PRIMARY KEY)")
 
     def connect(self):
         return sqlite3.connect(self.path, timeout=15)
@@ -45,6 +46,7 @@ class Store:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             existing = {row[0]: json.loads(row[1]) for row in db.execute("SELECT id, payload FROM tasks")}
+            deleted = {row[0] for row in db.execute("SELECT task_id FROM deleted_task_ids")}
             for task in tasks:
                 record = dict(task)
                 title = str(record.get("title", "")).strip()
@@ -57,9 +59,9 @@ class Store:
                 record_id = record_id or hashlib.sha256("|".join(identity).encode()).hexdigest()
                 # A renamed task retains its ID; a new proposal using its old name
                 # must not silently overwrite that user's edit.
-                while record_id in existing and (
+                while record_id in deleted or (record_id in existing and (
                     str(existing[record_id].get("mail_id", "manual")), existing[record_id]["title"]
-                ) != identity:
+                ) != identity):
                     record_id = hashlib.sha256((record_id + "|new").encode()).hexdigest()
                 previous = existing.get(record_id, {})
                 record = previous | record
@@ -128,6 +130,22 @@ class Store:
             db.execute("UPDATE tasks SET payload=? WHERE id=?", (json.dumps(record, ensure_ascii=False), task_id))
         return record
 
+    def delete_task(self, task_id: str, *, expected_updated_at=None) -> bool:
+        """Remove one selected task while keeping files and recorded study history."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT payload FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None:
+                return False
+            record = json.loads(row[0])
+            if expected_updated_at is not None and record.get("updated_at") != expected_updated_at:
+                raise ValueError("This task changed in another view. Refresh and review it before deleting.")
+            # Reserve the ID so a deliberately re-added task cannot inherit old
+            # schedule references or previously recorded daily progress.
+            db.execute("INSERT OR IGNORE INTO deleted_task_ids VALUES (?)", (task_id,))
+            db.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        return True
+
     def save_plan(self, plan: dict) -> str:
         payload = json.dumps(plan, ensure_ascii=False, sort_keys=True)
         with self.connect() as db:
@@ -152,8 +170,20 @@ class Store:
 
     @staticmethod
     def _plans(db) -> list[dict]:
-        return [dict(json.loads(payload), id=identifier)
-                for identifier, payload in db.execute("SELECT id, payload FROM plans ORDER BY rowid")]
+        deleted = {row[0] for row in db.execute("SELECT task_id FROM deleted_task_ids")}
+        plans = []
+        for identifier, payload in db.execute("SELECT id, payload FROM plans ORDER BY rowid"):
+            plan = dict(json.loads(payload), id=identifier)
+            for field in ("blocks", "unscheduled"):
+                if field in plan.get("result", {}):
+                    plan["result"][field] = [item for item in plan["result"][field]
+                                             if item.get("task_id") not in deleted]
+            if "tasks" in plan.get("inputs", {}):
+                plan["inputs"]["tasks"] = [task for task in plan["inputs"]["tasks"]
+                                           if task.get("id") not in deleted]
+            # Keep empty plan versions: their activation still supersedes earlier plans.
+            plans.append(plan)
+        return plans
 
     def plans(self) -> list[dict]:
         with self.connect() as db:

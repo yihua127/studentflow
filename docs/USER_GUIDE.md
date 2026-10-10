@@ -30,6 +30,8 @@ Choose **Unfinished** or **Completed**, then select a task under **Edit task**. 
 
 The task list shows total, completed and remaining minutes. **Download tasks** exports both categories as CSV.
 
+To delete a task from either category, select it under **Edit task**, expand **Delete task**, check **I want to delete this task**, and select **Delete task**. It is removed from the task list, saved plan and upcoming daily reviews. Saved attachments and previously recorded study time remain available.
+
 ## Study Plan
 
 1. Add the dates and times when you are available to study.

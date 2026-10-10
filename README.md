@@ -7,7 +7,7 @@ StudentFlow is a local productivity application that connects to Gmail, helps tu
 ## Use the app
 
 - **Inbox (Gmail):** connect an account, browse messages and extract task suggestions from one or several selected emails.
-- **Tasks:** edit saved task details, track completed and remaining study time, and browse Unfinished and Completed tasks.
+- **Tasks:** edit saved task details, track study progress, and browse or delete tasks in Unfinished and Completed.
 - **Study Plan:** set availability, commitments and meal breaks, review a draft, and replan remaining work with earlier deadlines first.
 - **Attachments:** keep task-related originals and text on this device, search PDF and Word content, download files and delete saved attachments.
 - **Settings:** save an OpenAI API key on this device, choose a model and test the connection.

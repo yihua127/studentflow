@@ -6,6 +6,7 @@ import csv
 import hashlib
 import io
 import json
+import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -170,6 +171,28 @@ def _render_editor(store, task):
                 st.error(str(exc))
 
 
+def _render_delete(store, task):
+    prefix = f"task_delete_{task['id']}_{_editor_revision(task)}"
+    with st.expander("Delete task"):
+        st.write(task["title"])
+        st.caption("Remove this task from your task list, saved plan and upcoming daily reviews. "
+                   "Saved attachments and previously recorded study time are kept.")
+        confirmed = st.checkbox("I want to delete this task.", key=prefix + "_confirm")
+        if st.button("Delete task", key=prefix + "_button", disabled=not confirmed):
+            try:
+                store.delete_task(task["id"], expected_updated_at=task.get("updated_at"))
+            except ValueError as exc:
+                st.error(str(exc))
+            except (OSError, sqlite3.Error):
+                st.error("The task could not be deleted. Please try again.")
+            else:
+                st.session_state.pop("planner_draft", None)
+                st.session_state.get("tasks_editor_versions", {}).pop(task["id"], None)
+                st.session_state.pop("tasks_next_selection", None)
+                st.session_state.tasks_notice = "Task deleted."
+                st.rerun()
+
+
 def render_tasks(store):
     """Render task categories and save edits against the original stable task ID."""
     tasks = store.tasks()
@@ -211,6 +234,7 @@ def render_tasks(store):
             ),
         )
         _render_editor(store, by_id[task_id])
+        _render_delete(store, by_id[task_id])
     else:
         st.info("No completed tasks yet." if category == "Completed" else "No unfinished tasks.")
     st.session_state.pop("tasks_own_save", None)
