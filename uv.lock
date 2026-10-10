@@ -1223,7 +1223,7 @@ requires-dist = [
     { name = "python-docx", specifier = ">=1.1,<2" },
     { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "requests", specifier = ">=2.32,<3" },
-    { name = "streamlit", specifier = ">=1.45,<2" },
+    { name = "streamlit", specifier = ">=1.52,<2" },
     { name = "tzdata", specifier = ">=2025.1" },
 ]
 

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "DSS5105 Track 4 local StudentFlow prototype"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "streamlit>=1.45,<2",
+  "streamlit>=1.52,<2",
   "langchain>=1,<2",
   "langchain-openai>=1,<2",
   "pydantic==2.13.5",

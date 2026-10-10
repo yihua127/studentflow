@@ -375,6 +375,8 @@ def render_attachments():
 
 def main():
     st.set_page_config(page_title="StudentFlow", page_icon=str(ROOT / "assets" / "studentflow-icon.png"), layout="wide")
+    # Only this bundled static script may execute; never include email or user input.
+    st.html(ROOT / "assets" / "browser-language.html", unsafe_allow_javascript=True)
     st.set_option("client.toolbarMode", "viewer")
     st.title("StudentFlow")
     st.caption("Turn email into a clear study plan.")

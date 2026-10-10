@@ -318,6 +318,7 @@ def render_batch_extraction(
     results = st.session_state.get("batch_results", [])
     if not results:
         return
+    warnings = []
     for entry in results:
         name = by_id.get(entry["gmail_id"], {}).get("subject") or "Message"
         if "error" in entry:
@@ -326,8 +327,9 @@ def render_batch_extraction(
             count = len(entry["result"]["tasks"])
             suffix = " Previous result reused." if entry.get("cached") else ""
             st.caption(f"{name}: {count} task suggestion(s).{suffix}")
-            for warning in entry["result"].get("warnings", []):
-                st.caption(warning)
+            warnings.extend(entry["result"].get("warnings", []))
+    for warning in dict.fromkeys(warnings):
+        st.caption(warning)
     rows, sources = review_rows(results, st.session_state.mails)
     if not rows:
         return

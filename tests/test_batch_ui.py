@@ -217,6 +217,14 @@ render_batch_extraction(headers, Path('fake-client'), Path('fake-token'),
 def test_ui_requires_explicit_selection_consent_and_bulk_review(tmp_path, monkeypatch):
     monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
     calls = setup_fakes(monkeypatch)
+    extract = batch_ui.extract_tasks
+
+    def extract_with_reminder(*args, **kwargs):
+        result = extract(*args, **kwargs)
+        result["warnings"] = ["Review the suggestions before saving."]
+        return result
+
+    monkeypatch.setattr(batch_ui, "extract_tasks", extract_with_reminder)
     app = AppTest.from_string(APP_SOURCE)
 
     def checked():
@@ -240,6 +248,7 @@ def test_ui_requires_explicit_selection_consent_and_bulk_review(tmp_path, monkey
     button("Extract tasks").click()
     checked()
     assert len([call for call in calls if call[0] == "extract"]) == 2
+    assert [caption.value for caption in app.caption].count("Review the suggestions before saving.") == 1
     assert Store(tmp_path / "tasks.sqlite3").tasks() == []
     button("Save selected tasks").click()
     checked()

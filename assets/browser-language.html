@@ -1,0 +1,19 @@
+<script>
+// Browser translators can replace text nodes owned by React and break rerenders.
+// Keep the English interface and source messages in their original language.
+(() => {
+  for (const element of [document.documentElement, document.body, document.getElementById("root")]) {
+    if (element) {
+      element.setAttribute("translate", "no");
+      element.classList.add("notranslate");
+    }
+  }
+  let meta = document.head.querySelector('meta[name="google"]');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.name = "google";
+    document.head.appendChild(meta);
+  }
+  meta.content = "notranslate";
+})();
+</script>
