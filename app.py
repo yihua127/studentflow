@@ -23,6 +23,7 @@ from studentflow.storage import Store
 
 ROOT = Path(__file__).resolve().parent
 ZONE = ZoneInfo("Asia/Singapore")
+INBOX_PAGE_SIZE = 20
 
 
 def display_time(value):
@@ -268,21 +269,17 @@ def render_inbox(store, data_dir, api_key, model):
         st.error(notice)
     ready = bool(st.session_state.get("gmail_profile") and consent and token_path.is_file())
     with st.expander("Task extraction", expanded=True):
-        count_col, button_col = st.columns([1, 3], vertical_alignment="bottom")
-        with count_col:
-            count = st.selectbox("Messages per batch", [5, 10, 20], index=2, key="gmail_batch_size")
-        with button_col:
-            if st.button("Refresh inbox", disabled=not ready):
-                try:
-                    with st.spinner("Loading inbox..."):
-                        load_inbox_page(credential_path, token_path, count)
-                except GmailError as exc:
-                    show_gmail_error(exc)
+        if st.button("Refresh inbox", disabled=not ready):
+            try:
+                with st.spinner("Loading inbox..."):
+                    load_inbox_page(credential_path, token_path, INBOX_PAGE_SIZE)
+            except GmailError as exc:
+                show_gmail_error(exc)
         if st.session_state.get("gmail_next_page_token"):
             if st.button("Load more", disabled=not ready):
                 try:
                     with st.spinner("Loading more messages..."):
-                        load_inbox_page(credential_path, token_path, count, append=True)
+                        load_inbox_page(credential_path, token_path, INBOX_PAGE_SIZE, append=True)
                     st.rerun()
                 except GmailError as exc:
                     show_gmail_error(exc)

@@ -31,5 +31,5 @@ If Google shows a verification notice, verify that the application is your own S
 - AI task extraction uses a separately configured model and explicit consent for each selected message.
 - Sign-in tokens are saved in `data/auth/` on your computer. Do not share that folder. Each person should run a separate copy and sign in with their own account.
 - **Disconnect Gmail** removes the saved sign-in on this device and clears opened messages. Previously saved tasks remain. To revoke Google's permission for StudentFlow, remove it from your Google account's third-party connections.
-- **Messages per batch** sets how many emails each request loads. **Load more** adds the next batch to the inbox list.
+- The inbox loads up to 20 emails at a time. **Load more** adds the next 20 to the inbox list.
 - In External + Testing mode, refresh tokens for this scope expire after seven days. Sign in again when prompted. [Google token documentation](https://developers.google.com/identity/protocols/oauth2#expiration)

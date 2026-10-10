@@ -66,6 +66,7 @@ def test_empty_interface_is_english_and_gmail_first(tmp_path, monkeypatch):
     assert not app.get("file_uploader")
     assert find(app.button, "Connect Gmail").disabled
     assert find(app.button, "Refresh inbox").disabled
+    assert not any(box.label == "Messages per batch" for box in app.selectbox)
     assert not any(button.label == "View selected messages" for button in app.button)
     assert not any(button.label == "Extract tasks" for button in app.button)
     assert find(app.expander, "Task extraction")
@@ -229,7 +230,7 @@ def connected_inbox(tmp_path, monkeypatch, pages):
     monkeypatch.setattr(batch_ui, "connect", fake_connect)
     app = checked(AppTest.from_file(str(APP)))
     assert state["calls"] == []
-    assert find(app.selectbox, "Messages per batch").value == 20
+    assert not any(box.label == "Messages per batch" for box in app.selectbox)
     find(app.checkbox, "Allow StudentFlow to read my Gmail messages.").check()
     checked(app)
     assert state["calls"] == []
@@ -297,12 +298,11 @@ def test_failed_load_more_can_retry_without_losing_messages_or_cursor(tmp_path, 
 
     state["pages"]["retry-page"] = page(message_headers(21, 25))
     calls_before = list(state["calls"])
-    find(app.selectbox, "Messages per batch").select(5)
     checked(app)
     assert state["calls"] == calls_before
     find(app.button, "Load more").click()
     checked(app)
-    assert state["calls"][-1] == ("list", 5, "retry-page")
+    assert state["calls"][-1] == ("list", 20, "retry-page")
     assert len(app.multiselect(key="batch_selected").options) == 25
     assert app.multiselect(key="batch_selected").value == ["message009"]
     assert not any(button.label == "Load more" for button in app.button)
@@ -532,16 +532,15 @@ def test_saved_login_restores_once_per_new_browser_without_reading_messages(tmp_
     assert find(reopened.button, "Switch account")
     assert "Gmail connected: student@example.com" in interface_text(reopened)
 
-    # A rerun or a batch-size change must not repeat connection/profile requests.
+    # Rerunning the page must not repeat connection/profile requests.
     calls_before = list(state["calls"])
     checked(reopened)
-    find(reopened.selectbox, "Messages per batch").select(5)
-    checked(reopened)
+    assert not any(box.label == "Messages per batch" for box in reopened.selectbox)
     assert state["calls"] == calls_before
     assert not find(reopened.button, "Refresh inbox").disabled
     find(reopened.button, "Refresh inbox").click()
     checked(reopened)
-    assert ("list", 5, None) in state["calls"]
+    assert ("list", 20, None) in state["calls"]
     assert not any(call[0] == "fetch" for call in state["calls"])
 
 

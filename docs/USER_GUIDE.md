@@ -8,7 +8,7 @@ In **Task extraction**, refresh the inbox and choose one or more messages. Selec
 
 If the connection is temporarily unavailable, select **Retry connection**. If Google requires renewed authorization, select **Reconnect Gmail** to sign in again.
 
-The inbox starts with 20 messages per batch. Choose 5, 10 or 20 under **Messages per batch**, and select **Load more** to add the next batch to the list. The loaded count shows how many messages are available to browse. **Refresh inbox** starts a fresh list with the latest messages.
+The inbox loads up to 20 messages at a time. Select **Load more** to add the next 20 to the list. The loaded count shows how many messages are available to browse. **Refresh inbox** starts a fresh list with the latest messages.
 
 To add a task, enter a name, a deadline in Singapore time, an estimated study duration and a matching passage from the message. Confirm the review and select **Save task**. Tasks with a deadline and estimated duration are saved as **Confirmed** and can be included in a study plan. Incomplete tasks are saved as **Needs details** for further review. Saving the same task name from the same message updates that record.
 

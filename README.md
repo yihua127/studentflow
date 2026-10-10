@@ -47,7 +47,7 @@ Select **View selected messages** to read the chosen messages and load their att
 
 - Gmail connections use the `gmail.readonly` permission.
 - Gmail sign-in is remembered on this device and restored automatically when StudentFlow opens. **Disconnect Gmail** signs out of the device; **Switch account** selects another account.
-- Choose 5, 10 or 20 messages per batch. Select **Load more** to append the next batch, or **Refresh inbox** to start again with the latest messages. Opening a selected message loads its text and attachments.
+- The inbox loads up to 20 messages at a time. Select **Load more** to append the next 20, or **Refresh inbox** to start again with the latest messages. Opening a selected message loads its text and attachments.
 - Tasks, preferences, plans and sign-in data are stored locally in the `data/` directory.
 - Disconnecting removes the local Gmail sign-in and clears opened messages. Previously saved tasks remain.
 
