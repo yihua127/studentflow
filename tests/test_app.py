@@ -163,9 +163,14 @@ def test_mail_consent_review_task_save_and_disconnect(tmp_path, monkeypatch):
     tasks = Store(tmp_path / "records" / "studentflow.sqlite3").tasks()
     assert len(tasks) == 1 and tasks[0]["title"] == "Submit report"
     task_table = next(table.value for table in app.dataframe if "Task" in table.value.columns)
-    assert list(task_table.columns) == ["Task", "Deadline", "Study time (min)", "Status", "Source message"]
+    assert list(task_table.columns) == [
+        "Task", "Deadline", "Study time (min)", "Status", "Source message",
+        "Completed (min)", "Remaining (min)", "Progress",
+    ]
     assert task_table.iloc[0]["Status"] == "Confirmed"
     assert task_table.iloc[0]["Source message"] == "Assignment"
+    assert task_table.iloc[0]["Remaining (min)"] == 60
+    assert task_table.iloc[0]["Progress"] == "Unfinished"
 
     fetches_before = [call for call in calls if call[0] == "fetch"]
     find(app.button, "View selected messages").click()

@@ -1,11 +1,14 @@
 """Offline validation tests; no OpenAI API request is made."""
 
+import io
+import json
 import sys
+from types import SimpleNamespace
 
 import pytest
+from docx import Document
 
 from studentflow.extraction import extract_tasks, validate_extraction
-
 
 BODY = "Please submit the report by 16 October, 17:00. Allow 90 minutes."
 
@@ -75,3 +78,83 @@ def test_malformed_envelope_is_not_a_fake_success():
     result = validate_extraction({"tasks": "none"}, BODY)
     assert result["tasks"] == []
     assert result["warnings"]
+
+
+def docx_attachment(text=BODY):
+    document = Document()
+    document.add_paragraph(text)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return {"id": "assignment-doc", "filename": "Assignment.docx", "content": buffer.getvalue()}
+
+
+def mock_model(monkeypatch, payload):
+    calls = []
+
+    class Chat:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def with_structured_output(self, schema, **kwargs):
+            calls.append(schema.model_json_schema())
+            return self
+
+        def invoke(self, messages):
+            calls.append(json.loads(messages[1][1]))
+            return payload
+
+    monkeypatch.setitem(sys.modules, "langchain_openai", SimpleNamespace(ChatOpenAI=Chat))
+    return calls
+
+
+@pytest.mark.parametrize("body", ["", "For your information. See attached."])
+def test_attachment_only_task_is_sent_to_model_and_keeps_filename(monkeypatch, body):
+    calls = mock_model(monkeypatch, proposal(source_attachment_id="assignment-doc"))
+    result = extract_tasks(body, "Assignment", "2026-10-09T09:00:00+08:00", "fake-key", "mock", [docx_attachment()])
+    assert calls[-1]["body"] == body
+    assert calls[-1]["attachments"][0]["text"] == BODY
+    assert result["tasks"][0]["source_quote"] == BODY
+    assert result["tasks"][0]["source_attachment_id"] == "assignment-doc"
+    assert result["tasks"][0]["source_filename"] == "Assignment.docx"
+    assert result["tasks"][0]["status"] == "needs_review"
+
+
+def test_quote_must_belong_to_named_attachment_and_not_body_or_other_file():
+    documents = [{"id": "a", "filename": "a.pdf", "text": "Different text", "pages": []},
+                 {"id": "b", "filename": "b.pdf", "text": BODY, "pages": []}]
+    task = validate_extraction(proposal(source_attachment_id="a"), BODY, documents)["tasks"][0]
+    assert task["source_quote"] == ""
+    assert task["confidence"] == 0
+    assert task["source_filename"] == "a.pdf"
+
+
+def test_unknown_attachment_id_cannot_be_used_as_evidence():
+    task = validate_extraction(proposal(source_attachment_id="invented"), BODY)["tasks"][0]
+    assert task["source_quote"] == ""
+    assert task["needs_clarification"]
+
+
+def test_attachment_page_is_derived_from_verified_quote():
+    docs = [{"id": "a", "filename": "a.pdf", "text": BODY,
+             "pages": [{"page": 3, "text": BODY}]}]
+    task = validate_extraction(proposal(source_attachment_id="a", source_page=999), "", docs)["tasks"][0]
+    assert task["source_page"] == 3
+
+
+def test_image_attachment_is_not_pretended_to_have_ocr(monkeypatch):
+    calls = mock_model(monkeypatch, {"tasks": []})
+    attachment = {"id": "image", "filename": "scan.png", "content": b"\x89PNG\r\n\x1a\n"}
+    result = extract_tasks("See attached", "Document", None, "fake", "mock", [attachment])
+    assert calls[-1]["attachments"] == []
+    assert any("Text recognition is not available" in warning for warning in result["warnings"])
+    with pytest.raises(ValueError, match="No readable"):
+        extract_tasks("", "Document", None, "fake", "mock", [attachment])
+
+
+def test_combined_source_limit_is_explicit_and_preserves_exact_evidence(monkeypatch):
+    from studentflow import extraction
+    monkeypatch.setattr(extraction, "MAX_SOURCE_CHARS", 40)
+    calls = mock_model(monkeypatch, {"tasks": []})
+    result = extract_tasks("Body", "Document", None, "fake", "mock", [docx_attachment("A" * 60)])
+    assert len(calls[-1]["attachments"][0]["text"]) == 36
+    assert any("combined text limit" in warning for warning in result["warnings"])

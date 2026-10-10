@@ -12,7 +12,8 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from studentflow.extraction import extract_tasks
+from studentflow.attachment_library import AttachmentLibrary
+from studentflow.extraction import attachment_fingerprint, evidence_text, extract_tasks
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.ingestion import parse_eml_bytes
 from studentflow.storage import Store
@@ -28,7 +29,8 @@ def clear_batch_state():
 
 
 def extraction_key(account: str, mail: dict, model: str) -> str:
-    payload = [account.casefold(), mail["body"], mail["subject"], mail.get("sent_at"), model]
+    payload = [account.casefold(), mail["body"], mail["subject"], mail.get("sent_at"), model,
+               attachment_fingerprint(mail.get("attachments", []))]
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -115,6 +117,7 @@ def run_batch(
         futures = {
             executor.submit(
                 extract_tasks, mail["body"], mail["subject"], mail.get("sent_at"), api_key, model,
+                **({"attachments": mail["attachments"]} if mail.get("attachments") else {}),
             ): (message_id, mail, entry)
             for message_id, (mail, entry) in pending.items()
         }
@@ -127,6 +130,8 @@ def run_batch(
                 cache[entry["cache_key"]] = result
                 candidates[mail["id"]] = result
                 entry.update(result=result, cached=False)
+            except ValueError as exc:
+                entry["error"] = str(exc)
             except Exception:
                 entry["error"] = "Task extraction failed. Check the AI connection and select this message to retry."
             results[message_id] = entry
@@ -155,9 +160,13 @@ def review_rows(results: list[dict], mails: dict) -> tuple[list[dict], dict]:
                 "Study time (min)": int(task.get("estimated_minutes") or 0),
                 "Supporting text": task.get("source_quote", ""),
                 "Source message": mail["subject"] or "Untitled message",
+                "Source file": task.get("source_filename") or "Message text",
                 "Review notes": " ".join(task.get("needs_clarification", [])), "_row_id": row_id,
             })
-            sources[row_id] = mail
+            sources[row_id] = {
+                **mail, "_source_attachment_id": task.get("source_attachment_id"),
+                "_source_filename": task.get("source_filename"),
+            }
     return rows, sources
 
 
@@ -183,8 +192,9 @@ def validate_selected_rows(rows: list[dict], sources: dict, reviewed: bool) -> l
             raise ValueError("Give selected tasks from the same message distinct names before saving.")
         task_identities.add(identity)
         quote = str(row.get("Supporting text") or "").strip()
-        if not quote or quote not in mail["body"]:
-            raise ValueError(f"Supporting text for '{title}' must match its source message.")
+        attachment_id = mail.get("_source_attachment_id")
+        if not quote or quote not in evidence_text(mail, attachment_id):
+            raise ValueError(f"Supporting text for '{title}' must match its source message or attachment.")
         due_text = str(row.get("Deadline") or "").strip()
         due = None
         if due_text:
@@ -204,6 +214,8 @@ def validate_selected_rows(rows: list[dict], sources: dict, reviewed: bool) -> l
             "status": "confirmed" if due and minutes else "pending", "source_quote": quote,
             "mail_subject": mail["subject"], "mail_sent_at": mail.get("sent_at"),
             "mail_imported_at": mail.get("imported_at"),
+            "source_attachment_id": attachment_id,
+            "source_filename": mail.get("_source_filename"),
         })
     return records
 
@@ -282,8 +294,12 @@ def render_batch_extraction(
                 st.error("The selected messages could not be opened. Try again.")
     if not api_key or not model:
         st.info("Add your OpenAI API key in Settings to extract tasks.")
+    # An existing browser session may have consented to body-only extraction.
+    if st.session_state.get("batch_consent_scope") != "message-and-attachments-v1":
+        st.session_state.batch_consent = False
+        st.session_state.batch_consent_scope = "message-and-attachments-v1"
     consent = st.checkbox(
-        "Allow the selected messages' subjects, text and dates to be sent to OpenAI for task extraction. Usage charges may apply.",
+        "Allow the selected messages' subjects, text, dates and readable attachment text to be sent to OpenAI for task extraction. Usage charges may apply.",
         key="batch_consent",
     )
     reanalyze = st.checkbox(
@@ -301,6 +317,13 @@ def render_batch_extraction(
                 reanalyze=reanalyze, progress=lambda value, text: progress.progress(value, text=text),
             )
             st.session_state.batch_results = results
+            try:
+                library = AttachmentLibrary(store.path)
+                for entry in results:
+                    if entry.get("result", {}).get("tasks"):
+                        library.save_for_message(st.session_state.mails[entry["mail_id"]])
+            except Exception:
+                st.warning("Task suggestions are ready, but some attachments could not be kept. Save the tasks to retry saving their attachments.")
             st.session_state.batch_review_version = st.session_state.get("batch_review_version", 0) + 1
             successful = [entry for entry in results if "mail_id" in entry]
             if successful:
@@ -335,11 +358,12 @@ def render_batch_extraction(
         return
     st.write("**Review task suggestions**")
     st.caption("Check Include for each task to save. Edit names, deadlines and study time. Deadlines use Singapore time; leave unknown dates blank and unknown study time as 0.")
+    st.caption("Confirmed requires a deadline and estimated study time greater than 0. Otherwise the task is saved as Needs details; you can complete or edit it on the Tasks page.")
     version = st.session_state.get("batch_review_version", 0)
     with st.form(f"batch_review_form_{version}"):
         edited = st.data_editor(
             rows, hide_index=True, num_rows="fixed", width="stretch",
-            disabled=["Source message", "Review notes", "_row_id"],
+            disabled=["Source message", "Source file", "Review notes", "_row_id"],
             column_config={
                 "_row_id": None,
                 "Include": st.column_config.CheckboxColumn("Include", default=False),
@@ -356,6 +380,12 @@ def render_batch_extraction(
             try:
                 records = validate_selected_rows(edited, sources, reviewed)
                 store.save_tasks(records)
+                try:
+                    library = AttachmentLibrary(store.path)
+                    for mail_id in {record["mail_id"] for record in records}:
+                        library.save_for_message(st.session_state.mails[mail_id])
+                except Exception:
+                    st.warning("Tasks were saved, but some attachments could not be kept. Save again to retry.")
                 pending = sum(record["status"] == "pending" for record in records)
                 st.success(f"Saved {len(records)} task(s)." + (f" {pending} marked as Needs details." if pending else ""))
             except ValueError as exc:

@@ -7,7 +7,7 @@ The greedy schedule is a proposal, not a proof that a different plan is impossib
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -21,8 +21,8 @@ DEFAULT_MEALS = [
 
 def _instant(value: Any) -> datetime:
     if not isinstance(value, str):
-        raise ValueError("Times must include a timezone offset in ISO format.")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        raise TypeError("Times must include a timezone offset in ISO format.")
+    parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("The time has no timezone offset.")
     return parsed.astimezone(UTC)
@@ -90,6 +90,7 @@ class _Context:
     break_minutes: int
     buffer_minutes: int
     now: datetime | None
+    completed_by_day: dict[date, int]
     warnings: list[str]
 
 
@@ -115,6 +116,10 @@ def _context(available_slots: list[dict], busy_events: list[dict], settings: dic
     if manual_commute is not None:
         manual_commute = _integer(manual_commute, "Custom one-way commute")
     now = _instant(settings["now"]) if settings.get("now") is not None else None
+    completed_by_day = {
+        date.fromisoformat(day): _integer(minutes, "Completed study time")
+        for day, minutes in settings.get("completed_by_day", {}).items()
+    }
     source_slots = _union([_interval(slot, "Available time") for slot in available_slots])
     meals = []
     for item in settings.get("meals", DEFAULT_MEALS):
@@ -215,6 +220,7 @@ def _context(available_slots: list[dict], busy_events: list[dict], settings: dic
         break_minutes=break_minutes,
         buffer_minutes=buffer_minutes,
         now=now,
+        completed_by_day=completed_by_day,
         warnings=warnings,
     )
 
@@ -224,6 +230,12 @@ def _task_info(task: dict, duplicates: set[str]) -> tuple[str, str, int, datetim
     title = str(task.get("title") or "Untitled task")
     estimate = task.get("estimated_minutes")
     minutes = estimate if isinstance(estimate, int) and not isinstance(estimate, bool) else 0
+    completed = task.get("completed_minutes", 0)
+    if isinstance(completed, bool) or not isinstance(completed, int) or completed < 0:
+        return task_id, title, max(0, minutes), None, "Completed study time must be a nonnegative whole number."
+    if minutes > 0 and completed >= minutes:
+        return task_id, title, 0, None, "This task is already completed."
+    minutes = max(0, minutes - completed)
     if not task_id or task_id in duplicates:
         return task_id, title, max(0, minutes), None, "The task ID is missing or duplicated. Correct it before scheduling."
     if task.get("status") != "confirmed":
@@ -244,6 +256,16 @@ def _duplicate_ids(tasks: list[dict]) -> set[str]:
     return {task_id for task_id, count in counts.items() if count > 1}
 
 
+def is_completed(task: dict) -> bool:
+    """Completion depends on recorded effort, separately from confirmation status."""
+    estimate, completed = task.get("estimated_minutes"), task.get("completed_minutes", 0)
+    return (
+        isinstance(estimate, int) and not isinstance(estimate, bool) and estimate > 0
+        and isinstance(completed, int) and not isinstance(completed, bool)
+        and completed >= estimate
+    )
+
+
 def propose_schedule(
     tasks: list[dict], available_slots: list[dict], busy_events: list[dict], settings: dict
 ) -> dict:
@@ -256,7 +278,7 @@ def propose_schedule(
     """
     result: dict = {"blocks": [], "unscheduled": [], "warnings": []}
     duplicates = _duplicate_ids(tasks)
-    task_infos = [_task_info(task, duplicates) for task in tasks]
+    task_infos = [_task_info(task, duplicates) for task in tasks if not is_completed(task)]
     try:
         ctx = _context(available_slots, busy_events, settings)
     except (ValueError, TypeError, KeyError) as exc:
@@ -284,7 +306,7 @@ def propose_schedule(
         else:
             candidates.append((due, task_id, title, minutes))
     allocated: list[Interval] = []
-    daily_used: dict = defaultdict(int)
+    daily_used: dict = defaultdict(int, ctx.completed_by_day)
     for due, task_id, title, minutes in sorted(candidates):
         remaining = minutes
         padding = timedelta(minutes=ctx.break_minutes)
@@ -401,14 +423,14 @@ def validate_schedule(
         elif end > due:
             issues.append(f"{label} ends after the task deadline.")
     for day, seconds in daily_seconds.items():
-        if seconds > ctx.daily_limit * 60:
+        if seconds + ctx.completed_by_day.get(day, 0) * 60 > ctx.daily_limit * 60:
             issues.append(f"Study time on {day.isoformat()} exceeds the daily limit.")
     for task_id, seconds in task_seconds.items():
         task = task_map.get(task_id)
         if task:
             _, _, minutes, _, reason = _task_info(task, duplicates)
             if not reason and seconds > minutes * 60:
-                issues.append(f"The scheduled time for task {task_id} exceeds its estimated effort.")
+                issues.append(f"The scheduled time for task {task_id} exceeds its estimated effort remaining after recorded progress.")
     # Keep the farthest end encountered, so a nested overlapping block cannot
     # conceal a later collision with an earlier, longer block.
     latest_end = None

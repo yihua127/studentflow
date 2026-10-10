@@ -7,9 +7,9 @@ StudentFlow is a local productivity application that connects to Gmail, helps tu
 ## Use the app
 
 - **Inbox (Gmail):** connect an account, browse messages and extract task suggestions from one or several selected emails.
-- **Tasks:** review and save tasks with deadlines, estimated study time and supporting text.
-- **Study Plan:** enter available time and commitments, generate a draft, then confirm before saving.
-- **Attachments:** read PDF and Word attachments and search their source text.
+- **Tasks:** edit saved task details, track completed and remaining study time, and browse Unfinished and Completed tasks.
+- **Study Plan:** set availability, commitments and meal breaks, review a draft, and replan remaining work with earlier deadlines first.
+- **Attachments:** keep task-related originals and text on this device, search PDF and Word content, download files and delete saved attachments.
 - **Settings:** save an OpenAI API key on this device, choose a model and test the connection.
 
 The interface is in English. Original emails, quotations and user-entered content retain their source language.
@@ -39,16 +39,23 @@ Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to create a desktop OAuth cl
 
 Open **Settings**, enter an OpenAI API key, choose a model and select **Save AI settings**. Select **Test AI connection** to check the saved configuration with a short example. Settings are stored in the local `.env` file. See the [OpenAI setup guide](docs/OPENAI_SETUP.md) for billing and API key steps.
 
-Task extraction uses LangChain and the selected OpenAI model. In **Task extraction**, refresh the inbox, select one or more messages, give consent and choose **Extract tasks**. Review the suggestions together, edit their details and select the tasks to save. Each task retains its source message and supporting text. Successful results are reused within the current session when retrying the same messages with the same model.
+Task extraction uses LangChain and the selected OpenAI model to analyze message text and readable PDF/Word attachments. In **Task extraction**, refresh the inbox, select one or more messages, give consent and choose **Extract tasks**. Review the suggestions together, edit their details and select the tasks to save. **Confirmed** requires a deadline and estimated study time greater than zero. Each task retains its source message, supporting text and attachment reference where applicable. Successful results are reused within the current session when retrying unchanged messages and attachments with the same model.
 
 Select **View selected messages** to read the chosen messages and load their attachments. Tasks can also be entered manually in the message review form.
+
+## Track study progress
+
+At a saved plan's daily study end time, StudentFlow asks how much of the planned work was completed. Confirm all planned minutes or enter actual minutes for each task. Saved progress reduces remaining study time; tasks with zero remaining minutes move to **Completed**. Select **Replan remaining tasks**, review the new draft and save it.
+
+The app checks for daily reviews while its window is open and shows missed reviews on the next visit. Saved plans and progress remain available after restarting.
 
 ## Data and permissions
 
 - Gmail connections use the `gmail.readonly` permission.
 - Gmail sign-in is remembered on this device and restored automatically when StudentFlow opens. **Disconnect Gmail** signs out of the device; **Switch account** selects another account.
 - The inbox loads up to 20 messages at a time. Select **Load more** to append the next 20, or **Refresh inbox** to start again with the latest messages. Opening a selected message loads its text and attachments.
-- Tasks, preferences, plans and sign-in data are stored locally in the `data/` directory.
+- Tasks, progress, preferences, plans, attachment originals and sign-in data are stored locally in the `data/` directory.
+- Attachments associated with extracted or saved tasks stay available until manually deleted. Other opened attachments can be kept using **Save attachment**.
 - Disconnecting removes the local Gmail sign-in and clears opened messages. Previously saved tasks remain.
 
 ## Development and tests
@@ -57,6 +64,6 @@ Select **View selected messages** to read the chosen messages and load their att
 uv run --locked python -m pytest -q
 ```
 
-Tests cover email parsing, attachment text extraction, task validation, scheduling and Gmail integration using synthetic inputs and mocked network services. Interface tests cover authorization, message opening, AI settings, batch extraction, task review and study planning.
+Tests cover email parsing, attachment evidence and retention, task editing, progress accounting, scheduling and Gmail integration using synthetic inputs and mocked network services. Interface checks cover extraction, task review, editable preferences, daily progress and restart persistence.
 
 Entry point: `app.py`. Application modules: `src/studentflow/`. Tests: `tests/`.

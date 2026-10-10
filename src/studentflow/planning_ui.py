@@ -7,17 +7,18 @@ import hashlib
 import io
 import json
 import os
+import re
 import sqlite3
 import tempfile
 from copy import deepcopy
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from studentflow.planner import DEFAULT_MEALS, propose_schedule, validate_schedule
+from studentflow.planner import DEFAULT_MEALS, is_completed, propose_schedule, validate_schedule
 
 ZONE = ZoneInfo("Asia/Singapore")
 
@@ -102,6 +103,38 @@ def write_preferences(path: Path, preferences: dict) -> None:
     finally:
         if temporary is not None and temporary.exists():
             temporary.unlink()
+
+
+def parse_meal_breaks(value: str) -> list[dict]:
+    """Accept editable daily meal windows; an empty field reserves no meals."""
+    meals = []
+    for line in value.splitlines():
+        if not line.strip():
+            continue
+        match = re.fullmatch(r"\s*(\d{2}:\d{2})\s*[-–—]\s*(\d{2}:\d{2})\s*", line)
+        if not match:
+            raise ValueError("Enter each meal break as HH:MM-HH:MM, one per line.")
+        start, end = match.groups()
+        try:
+            start_time, end_time = time.fromisoformat(start), time.fromisoformat(end)
+        except ValueError as exc:
+            raise ValueError("Meal times must be valid 24-hour times, for example 12:15-13:00.") from exc
+        if end_time <= start_time:
+            raise ValueError("Each meal break must end after it starts on the same day.")
+        meals.append({"start": start, "end": end})
+    return meals
+
+
+def make_draft(tasks: list[dict], preferences: dict, now: str, completed_by_day: dict) -> dict:
+    settings = preferences["settings"] | {"now": now, "completed_by_day": completed_by_day}
+    slots, events = preferences["available_slots"], preferences["busy_events"]
+    result = propose_schedule(tasks, slots, events, settings)
+    return {
+        "signature": planning_signature(tasks, preferences | {"completed_by_day": completed_by_day}, now),
+        "result": result,
+        "validation_errors": validate_schedule(result["blocks"], tasks, slots, events, settings),
+        "inputs": {"tasks": tasks, "slots": slots, "busy": events, "settings": settings},
+    }
 
 
 def planning_signature(tasks: list[dict], preferences: dict, now: str) -> str:
@@ -304,13 +337,24 @@ def _settings(preferences: dict, path: Path) -> None:
             value=settings["default_commute_minutes"],
             step=5,
         )
-        st.caption("Meals are reserved at 08:00–08:30, 11:30–12:00 and 17:30–18:00.")
+        meals_text = st.text_area(
+            "Meal breaks (HH:MM-HH:MM, one per line)",
+            value="\n".join(f"{meal['start']}-{meal['end']}" for meal in settings["meals"]),
+            help="Add, edit or remove any line. Leave empty if you do not want reserved meal breaks.",
+            key="sf_plan_meals",
+        )
+        st.caption("Meal times are editable. Save changes, then generate and save a new plan to apply them.")
         if st.form_submit_button("Save preferences"):
             if not (time(8) <= start < end <= time(22)):
                 st.error(
                     "Choose study times between 08:00 and 22:00, with the end after the start."
                 )
             else:
+                try:
+                    meals = parse_meal_breaks(meals_text)
+                except ValueError as exc:
+                    st.error(str(exc))
+                    return
                 updated = deepcopy(preferences)
                 updated["settings"].update(
                     {
@@ -320,9 +364,35 @@ def _settings(preferences: dict, path: Path) -> None:
                         "max_block_minutes": int(block),
                         "break_minutes": int(rest),
                         "default_commute_minutes": int(commute),
+                        "meals": meals,
                     }
                 )
-                _save(path, updated, "Study preferences saved.")
+                _save(path, updated, "Study preferences saved. Generate and save a new plan to apply the changes.")
+
+
+def _saved_plan(store) -> None:
+    plan = store.latest_plan()
+    if not plan:
+        return
+    st.markdown("**Saved study plan**")
+    st.caption(
+        "This plan is saved on this device. Daily progress appears at the study end time "
+        "while the app is open, or on your next visit if it was closed."
+    )
+    blocks = plan.get("result", {}).get("blocks", [])
+    if blocks:
+        st.dataframe(schedule_rows(blocks), hide_index=True, width="stretch")
+        st.download_button(
+            "Download saved schedule (CSV)", schedule_csv(blocks),
+            "studentflow_saved_schedule.csv", "text/csv", key="sf_saved_plan_download",
+        )
+    reviews = store.daily_reviews()
+    if reviews:
+        with st.expander("Recorded daily progress"):
+            st.dataframe([
+                {"Date": review["date"], "Completed (min)": sum(review["minutes"].values())}
+                for review in reviews
+            ], hide_index=True, width="stretch")
 
 
 def render_planner(tasks: list[dict], store, data_dir: Path) -> None:
@@ -333,6 +403,7 @@ def render_planner(tasks: list[dict], store, data_dir: Path) -> None:
     )
     if notice := st.session_state.pop("sf_plan_notice", None):
         st.success(notice)
+    _saved_plan(store)
     path = Path(data_dir) / "planning_preferences.json"
     try:
         preferences = read_preferences(path)
@@ -354,23 +425,23 @@ def render_planner(tasks: list[dict], store, data_dir: Path) -> None:
     if not tasks:
         st.info("Save a task from an email before creating a study plan.")
     else:
-        ready = sum(task.get("status") == "confirmed" for task in tasks)
+        ready = sum(task.get("status") == "confirmed" and not is_completed(task) for task in tasks)
         st.caption(
-            f"{ready} confirmed task(s). Tasks with missing details will be listed for review."
+            f"{ready} confirmed unfinished task(s). Remaining study time is scheduled, with earlier deadlines first. "
+            "Tasks with missing details will be listed for review."
         )
-    now = datetime.now(ZONE).replace(second=0, microsecond=0).isoformat()
-    settings = preferences["settings"] | {"now": now}
-    slots, events = preferences["available_slots"], preferences["busy_events"]
-    signature = planning_signature(tasks, preferences, now)
-    if st.button("Generate study plan", disabled=not tasks or not slots, type="primary"):
-        result = propose_schedule(tasks, slots, events, settings)
-        errors = validate_schedule(result["blocks"], tasks, slots, events, settings)
-        st.session_state["planner_draft"] = {
-            "signature": signature,
-            "result": result,
-            "validation_errors": errors,
-            "inputs": {"tasks": tasks, "slots": slots, "busy": events, "settings": settings},
-        }
+    # Start at the next whole minute so saving a draft never schedules in the past.
+    now = (datetime.now(ZONE) + timedelta(minutes=1)).replace(second=0, microsecond=0).isoformat()
+    progress = store.progress_by_day()
+    slots = preferences["available_slots"]
+    signature = planning_signature(tasks, preferences | {"completed_by_day": progress}, now)
+    generate = st.button("Generate study plan", disabled=not tasks or not slots, type="primary")
+    replan = st.button("Replan remaining tasks", disabled=not tasks or not slots, key="sf_plan_replan")
+    requested = st.session_state.pop("sf_replan_requested", False)
+    if generate or replan or requested:
+        st.session_state["planner_draft"] = make_draft(tasks, preferences, now, progress)
+        if requested:
+            st.info("A new draft is ready below. Open Study Plan to review it and choose Save plan.")
     draft = st.session_state.get("planner_draft")
     if not draft:
         return
@@ -411,7 +482,11 @@ def render_planner(tasks: list[dict], store, data_dir: Path) -> None:
     ):
         try:
             store.save_plan(draft)
-            st.success("Plan saved on this device.")
+            st.session_state.pop("planner_draft", None)
+            st.session_state["sf_plan_notice"] = "Plan saved on this device. Daily progress will use this schedule."
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
         except (OSError, sqlite3.Error):
             st.error("The plan could not be saved. Please try again.")
     if result["blocks"]:

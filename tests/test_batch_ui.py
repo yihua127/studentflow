@@ -1,12 +1,15 @@
 """Batch extraction journeys with isolated email and AI doubles."""
 
+import io
 from email.message import EmailMessage
 from pathlib import Path
 
 import pytest
+from docx import Document
 from streamlit.testing.v1 import AppTest
 
 from studentflow import batch_ui
+from studentflow.attachment_library import AttachmentLibrary
 from studentflow.gmail import GmailAuthError, GmailError
 from studentflow.storage import Store
 
@@ -348,4 +351,77 @@ def test_empty_inbox_guides_refresh_without_network_or_ai(tmp_path, monkeypatch)
     assert not app.exception
     assert any(info.value == "Refresh the inbox to choose messages." for info in app.info)
     assert not app.multiselect and calls == []
+
+
+def attachment_mail():
+    document = Document()
+    document.add_paragraph("Write the research report. Allow 60 minutes.")
+    buffer = io.BytesIO()
+    document.save(buffer)
+    email = EmailMessage()
+    email["Subject"] = "Attachment instructions"
+    email["Date"] = "Fri, 9 Oct 2026 09:00:00 +0800"
+    email.set_content("For your information.")
+    email.add_attachment(buffer.getvalue(), maintype="application", subtype="vnd.openxmlformats-officedocument.wordprocessingml.document", filename="instructions.docx")
+    return batch_ui.parse_eml_bytes(email.as_bytes(), "Gmail")
+
+
+def test_attachment_changes_invalidate_model_cache_even_when_ids_are_reused():
+    mail = attachment_mail()
+    original = batch_ui.extraction_key("student", mail, "model")
+    changed = {**mail, "attachments": [{**mail["attachments"][0], "content": b"changed"}]}
+    assert original != batch_ui.extraction_key("student", changed, "model")
+
+
+def test_batch_passes_attachment_and_saves_locked_correct_provenance(monkeypatch):
+    setup_fakes(monkeypatch)
+    mail = attachment_mail()
+    mail.update(provider="gmail", gmail_id="a", gmail_account=PROFILE["email_address"])
+    mails = {mail["id"]: mail}
+    seen = []
+
+    def extract(body, subject, sent_at, api_key, model, attachments=None):
+        seen.extend(attachments or [])
+        task = fake_extraction("Write the research report. Allow 60 minutes.", subject, sent_at, api_key, model)["tasks"][0]
+        task.update(source_attachment_id=attachments[0]["id"], source_filename="instructions.docx")
+        return {"tasks": [task], "warnings": []}
+
+    monkeypatch.setattr(batch_ui, "extract_tasks", extract)
+    results = run(["a"], mails)
+    assert seen == mail["attachments"]
+    rows, sources = batch_ui.review_rows(results, mails)
+    rows[0]["Include"] = True
+    assert rows[0]["Source file"] == "instructions.docx"
+    rows[0]["Source file"] = "forged.docx"
+    record = batch_ui.validate_selected_rows(rows, sources, True)[0]
+    assert record["source_filename"] == "instructions.docx"
+    assert record["source_attachment_id"] == mail["attachments"][0]["id"]
+    rows[0]["Supporting text"] = "For your information."
+    with pytest.raises(ValueError, match="must match"):
+        batch_ui.validate_selected_rows(rows, sources, True)
+
+
+def test_batch_ui_keeps_original_attachments_when_candidates_are_extracted(tmp_path, monkeypatch):
+    monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
+    setup_fakes(monkeypatch)
+    mail = attachment_mail()
+    mail.update(provider="gmail", gmail_id="a", gmail_account=PROFILE["email_address"])
+
+    def extract(body, subject, sent_at, api_key, model, attachments=None):
+        return fake_extraction(body, subject, sent_at, api_key, model)
+
+    monkeypatch.setattr(batch_ui, "extract_tasks", extract)
+    app = AppTest.from_string(APP_SOURCE).run(timeout=30)
+    app.session_state["mails"] = {mail["id"]: mail}
+    app.multiselect(key="batch_selected").set_value(["a"])
+    app.run(timeout=30)
+    app.checkbox(key="batch_consent").check()
+    app.run(timeout=30)
+    app.button(key="batch_extract").click()
+    app.run(timeout=30)
+    assert not app.exception
+    library = AttachmentLibrary(tmp_path / "tasks.sqlite3")
+    assert len(library.documents()) == 1
+    assert library.content(library.documents()[0]["library_id"]) == mail["attachments"][0]["content"]
+    assert Store(tmp_path / "tasks.sqlite3").tasks() == []
 

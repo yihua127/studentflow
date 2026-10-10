@@ -197,3 +197,43 @@ def test_missing_and_duplicate_ids_not_scheduled():
     plan = checked([task(), task(), task(task_id="")])
     assert not plan["blocks"]
     assert len(plan["unscheduled"]) == 3
+
+
+def test_replan_uses_remaining_time_and_omits_completed_tasks():
+    plan = checked([
+        task(120, "partly_done", completed_minutes=75),
+        task(60, "finished", completed_minutes=60),
+    ])
+    assert sum(block["minutes"] for block in plan["blocks"]) == 45
+    assert {block["task_id"] for block in plan["blocks"]} == {"partly_done"}
+    assert plan["unscheduled"] == []
+
+
+def test_replan_preserves_daily_limit_after_actual_progress():
+    plan = checked(
+        [task(300, completed_minutes=40)],
+        settings={"completed_by_day": {"2026-10-12": 330}, "now": stamp("14:00")},
+    )
+    assert sum(block["minutes"] for block in plan["blocks"]) == 30
+    assert plan["unscheduled"][0]["remaining_minutes"] == 230
+    assert all(block["start"] >= stamp("14:00") for block in plan["blocks"])
+
+
+def test_validator_rejects_overallocating_remaining_effort():
+    tasks = [task(120, completed_minutes=90)]
+    blocks = [{"task_id": "t1", "start": stamp("09:00"), "end": stamp("10:00"), "minutes": 60}]
+    assert any("remaining" in issue for issue in validate_schedule(blocks, tasks, [slot()], [], {}))
+
+
+def test_custom_meals_replace_default_meals_and_can_be_removed():
+    custom = checked([task(180)], [slot("08:00", "12:00")], settings={"meals": [{"start": "09:00", "end": "10:00"}]})
+    assert custom["blocks"][0]["start"] == stamp("08:00")
+    assert custom["blocks"][0]["end"] == stamp("09:00")
+    assert custom["blocks"][1]["start"] == stamp("10:00")
+    no_meals = checked([task(30)], settings={"meals": []})
+    assert no_meals["blocks"][0]["start"] == stamp("08:00")
+
+
+def test_past_recorded_effort_above_new_daily_limit_does_not_invalidate_future_plan():
+    plan = checked([task(30)], settings={"daily_limit_minutes": 60, "completed_by_day": {"2026-10-11": 180}})
+    assert sum(block["minutes"] for block in plan["blocks"]) == 30

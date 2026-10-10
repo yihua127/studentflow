@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import csv
-import io
 import os
 import re
 from contextlib import closing
@@ -14,11 +12,14 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from studentflow.ai_settings import DEFAULT_MODEL, read_ai_settings, render_ai_settings
-from studentflow.attachments import extract_attachment
+from studentflow.attachment_library import AttachmentLibrary
+from studentflow.attachment_ui import render_attachments
+from studentflow.extraction import evidence_text, message_documents
 from studentflow.batch_ui import clear_batch_state, render_batch_extraction
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.planning_ui import render_planner
-from studentflow.retrieval import build_chunks, search_chunks
+from studentflow.daily_review import render_daily_review
+from studentflow.tasks_ui import render_tasks
 from studentflow.storage import Store
 
 ROOT = Path(__file__).resolve().parent
@@ -74,8 +75,21 @@ def render_message_review(store):
     show_warnings(mail["warnings"])
     st.caption(f"{len(mail['attachments'])} attachment(s)")
 
-    prefix = "task_" + mid
-    with st.form("confirm_" + mid):
+    documents = {document["id"]: document for document in message_documents(mail) if document.get("text")}
+    source_id = None
+    if documents:
+        source_id = st.selectbox(
+            "Task evidence", [None, *documents],
+            format_func=lambda value: "Message text" if value is None else documents[value]["filename"],
+            key="manual_source_" + mid,
+        )
+        if source_id:
+            with st.expander("Attachment text", expanded=True):
+                st.text(documents[source_id]["text"])
+    source_text = evidence_text(mail, source_id)
+    prefix = "task_" + mid + ("_" + source_id if source_id else "")
+    st.caption("Confirmed tasks need a deadline and an estimated study time greater than 0 minutes.")
+    with st.form("confirm_" + prefix):
         st.write("**Add a task**")
         title = st.text_input("Task name", key=prefix + "_title")
         left, right = st.columns(2)
@@ -91,7 +105,7 @@ def render_message_review(store):
                 key=prefix + "_minutes",
             )
         quote = st.text_area(
-            "Supporting text", help="Copy a passage from the message that describes the task.",
+            "Supporting text", help="Copy a passage from the selected message or attachment that describes the task.",
             height=90, key=prefix + "_quote",
         )
         reviewed = st.checkbox("I have reviewed this task and its supporting text.", key=prefix + "_reviewed")
@@ -99,8 +113,8 @@ def render_message_review(store):
             try:
                 if not reviewed or not title.strip():
                     raise ValueError("Enter a task name and confirm that the task has been reviewed.")
-                if not quote.strip() or quote.strip() not in mail["body"]:
-                    raise ValueError("Supporting text must match a passage in this message.")
+                if not quote.strip() or quote.strip() not in source_text:
+                    raise ValueError("Supporting text must match a passage in the selected message or attachment.")
                 due = None
                 if due_text.strip():
                     try:
@@ -114,8 +128,14 @@ def render_message_review(store):
                     "status": "confirmed" if complete else "pending", "source_quote": quote.strip(),
                     "mail_subject": mail["subject"], "mail_sent_at": mail["sent_at"],
                     "mail_imported_at": mail.get("imported_at"),
+                    "source_attachment_id": source_id,
+                    "source_filename": documents[source_id]["filename"] if source_id else None,
                 })
                 st.success("Task saved." if complete else "Task saved as Needs details. Add a deadline and estimated time before planning.")
+                try:
+                    AttachmentLibrary(store.path).save_for_message(mail)
+                except Exception:
+                    st.warning("The task was saved, but its attachments could not be saved. Open Attachments and try saving them again.")
             except ValueError as exc:
                 st.error(str(exc))
 
@@ -299,79 +319,6 @@ def render_inbox(store, data_dir, api_key, model):
 
 
 
-def render_tasks(tasks):
-    st.subheader("Tasks")
-    st.caption("Review confirmed tasks and complete any missing details before planning.")
-    if not tasks:
-        st.info("No tasks yet. Select messages in Inbox (Gmail) to extract or add tasks.")
-        return
-    rows = [{
-        "Task": task["title"], "Deadline": display_time(task.get("due_at")),
-        "Study time (min)": task.get("estimated_minutes"),
-        "Status": "Confirmed" if task["status"] == "confirmed" else "Needs details",
-        "Source message": task.get("mail_subject") or "Saved message",
-    } for task in tasks]
-    st.dataframe(rows, hide_index=True, width="stretch")
-    with st.expander("Supporting text"):
-        selection = st.selectbox("Task", list(range(len(tasks))), format_func=lambda index: tasks[index]["title"])
-        st.text(tasks[selection].get("source_quote", "No supporting text saved."))
-    buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=list(rows[0]))
-    writer.writeheader()
-    for row in rows:
-        # Email-derived text must remain text when opened in a spreadsheet.
-        writer.writerow({
-            key: "'" + value if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")) else value
-            for key, value in row.items()
-        })
-    st.download_button("Download tasks", buffer.getvalue(), "studentflow_tasks.csv", "text/csv")
-
-
-def render_attachments():
-    st.subheader("Attachments")
-    st.caption("Find information in attachments from opened messages.")
-    mails = available_messages()
-    attachment_count = sum(len(mail["attachments"]) for mail in mails.values())
-    if not attachment_count:
-        st.info("Open a message with a PDF or Word attachment from Inbox (Gmail) to get started.")
-        return
-    if st.button("Read attachments", type="primary"):
-        documents = []
-        for mail in mails.values():
-            for attachment in mail["attachments"]:
-                document = extract_attachment(attachment)
-                document["mail_id"] = mail["id"]
-                document["message_subject"] = mail["subject"]
-                documents.append(document)
-        st.session_state.documents = documents
-    documents = [document for document in st.session_state.get("documents", []) if document.get("mail_id") in mails]
-    status_labels = {
-        "ok": "Ready", "partial": "Partially readable", "needs_ocr": "Text recognition needed",
-        "error": "Could not read", "blocked": "Unavailable", "encrypted": "Password protected",
-        "unsupported": "Unsupported file type", "empty": "No text found",
-    }
-    for document in documents:
-        with st.expander(f"{document['filename']} · {status_labels.get(document['status'], 'Not available')}"):
-            st.caption("Source message: " + mails[document["mail_id"]]["subject"])
-            show_warnings(document["warnings"])
-            st.text(document["text"])
-    if not documents:
-        st.caption("Read the attachments to make their text searchable.")
-        return
-    with st.form("attachment_search"):
-        question = st.text_input("Search attachments", placeholder="Enter keywords from the document")
-        search = st.form_submit_button("Search")
-    if search:
-        hits = search_chunks(question, build_chunks(documents))
-        if not hits:
-            st.info("No matching text found. Try different keywords.")
-        for hit in hits:
-            with st.container(border=True):
-                st.write(hit["filename"])
-                page = f"Page {hit['page']}" if hit["page"] else "Document text"
-                st.caption(f"{mails[hit['mail_id']]['subject']} · {page}")
-                st.text(hit["text"])
-
 
 def main():
     st.set_page_config(page_title="StudentFlow", page_icon=str(ROOT / "assets" / "studentflow-icon.png"), layout="wide")
@@ -389,16 +336,17 @@ def main():
     except ValueError as exc:
         api_key, model = "", DEFAULT_MODEL
         st.error(str(exc))
+    render_daily_review(store, data_dir)
     tabs = st.tabs(["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments", "Settings"])
     with tabs[0]:
         render_inbox(store, data_dir, api_key, model)
     tasks = store.tasks()
     with tabs[1]:
-        render_tasks(tasks)
+        render_tasks(store)
     with tabs[2]:
         render_planner(tasks, store, data_dir)
     with tabs[3]:
-        render_attachments()
+        render_attachments(store, available_messages())
     with tabs[4]:
         render_ai_settings(ROOT)
 
