@@ -1,0 +1,11 @@
+StudentFlow application icon
+Generated using the built-in image_gen tool. PNG alpha preserved; ICO includes 16, 24, 32, 48, 64, 128 and 256 pixel representations.
+
+Final generation prompt:
+Use case: logo-brand
+Asset type: Windows desktop application icon for StudentFlow, a personal email-to-task and study-planning assistant.
+Primary request: One beautiful, professional, memorable square app icon that makes email becoming an organized task feel immediately clear.
+Subject: A single large white folded-envelope emblem, with its lower-right fold smoothly becoming one simple checkmark; a coherent unified mark, not multiple floating symbols. Smooth, bold geometry, balanced proportions, recognizable at 32 pixels.
+Style: Modern premium productivity app icon, understated dimensional depth, crisp vector-like contours, subtle luminous bevel. Blue-to-teal rounded square tile, rich deep cobalt upper left flowing into teal lower right, white mark in high contrast. No busy glossy effects.
+Composition: Square front-facing view; rounded square tile occupies about 88 percent of canvas with clean symmetric margins; central white emblem occupies about 60 percent of tile; all edges fully visible. Actual transparent background outside the tile, preserve transparency at the rounded corners.
+Constraints: No letters, words, numbers, watermark, brand logos, robot face, graduation cap, sparkles, dots, extra miniature elements, surrounding frame, scenery, mockup, labels or drop shadow outside the tile. Render only one completed icon.

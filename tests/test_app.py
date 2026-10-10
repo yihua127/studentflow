@@ -61,7 +61,7 @@ def test_empty_interface_is_english_and_gmail_first(tmp_path, monkeypatch):
 
     monkeypatch.setattr(gmail, "connect", unexpected_connection)
     app = checked(AppTest.from_file(str(APP)))
-    assert [tab.label for tab in app.tabs] == ["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments"]
+    assert [tab.label for tab in app.tabs] == ["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments", "Settings"]
     assert not app.get("file_uploader")
     assert find(app.button, "Connect Gmail").disabled
     assert find(app.button, "Refresh inbox").disabled

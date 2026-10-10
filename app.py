@@ -12,9 +12,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import streamlit as st
-from dotenv import dotenv_values
 
+from studentflow.ai_settings import DEFAULT_MODEL, read_ai_settings, render_ai_settings
 from studentflow.attachments import extract_attachment
+from studentflow.batch_ui import clear_batch_state, render_batch_extraction
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.ingestion import parse_eml_bytes
 from studentflow.planning_ui import render_planner
@@ -55,6 +56,8 @@ def open_message(raw, message_id):
     mail = parse_eml_bytes(raw, "Gmail / " + message_id)
     mail["imported_at"] = datetime.now(ZONE).isoformat()
     mail["provider"] = "gmail"
+    mail["gmail_id"] = message_id
+    mail["gmail_account"] = st.session_state.get("gmail_profile", {}).get("email_address", "").casefold()
     existed = mail["id"] in st.session_state.mails
     st.session_state.mails[mail["id"]] = mail
     st.session_state.active_mail = mail["id"]
@@ -84,7 +87,7 @@ def render_message_review(store, api_key, model):
 
     with st.expander("Extract tasks with AI"):
         if not api_key or not model:
-            st.info("AI extraction is not configured. Tasks can still be added manually below.")
+            st.info("Add an OpenAI API key in Settings to enable AI extraction.")
         allow_model = st.checkbox(
             "Allow this message's subject, text and date to be sent to OpenAI for task extraction. Usage charges may apply.",
             key="allow_model_" + mid,
@@ -180,6 +183,7 @@ def reset_inbox(clear_opened=False):
     ):
         st.session_state.pop(key, None)
     if clear_opened:
+        clear_batch_state()
         st.session_state.mails = {}
         st.session_state.candidates = {}
         st.session_state.documents = []
@@ -379,6 +383,7 @@ def render_inbox(store, data_dir, api_key, model):
         st.info("Connect Gmail to view your inbox.")
     else:
         st.caption("Refresh the inbox to load messages.")
+    render_batch_extraction(headers, credential_path, token_path, store, api_key, model, ready)
     render_message_review(store, api_key, model)
 
 
@@ -457,7 +462,7 @@ def render_attachments():
 
 
 def main():
-    st.set_page_config(page_title="StudentFlow", page_icon="📘", layout="wide")
+    st.set_page_config(page_title="StudentFlow", page_icon=str(ROOT / "assets" / "studentflow-icon.png"), layout="wide")
     st.set_option("client.toolbarMode", "viewer")
     st.title("StudentFlow")
     st.caption("Turn email into a clear study plan.")
@@ -465,10 +470,12 @@ def main():
     st.session_state.setdefault("candidates", {})
     data_dir = Path(os.environ.get("STUDENTFLOW_DATA_DIR", str(ROOT / "data")))
     store = Store(data_dir / "studentflow.sqlite3")
-    config = dotenv_values(ROOT / ".env")
-    api_key = config.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
-    model = config.get("OPENAI_MODEL") or os.environ.get("OPENAI_MODEL", "")
-    tabs = st.tabs(["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments"])
+    try:
+        api_key, model = read_ai_settings(ROOT)
+    except ValueError as exc:
+        api_key, model = "", DEFAULT_MODEL
+        st.error(str(exc))
+    tabs = st.tabs(["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments", "Settings"])
     with tabs[0]:
         render_inbox(store, data_dir, api_key, model)
     tasks = store.tasks()
@@ -478,6 +485,8 @@ def main():
         render_planner(tasks, store, data_dir)
     with tabs[3]:
         render_attachments()
+    with tabs[4]:
+        render_ai_settings(ROOT)
 
 
 if __name__ == "__main__":

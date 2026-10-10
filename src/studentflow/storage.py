@@ -21,20 +21,26 @@ class Store:
         return sqlite3.connect(self.path)
 
     def save_task(self, task: dict) -> str:
-        record = dict(task)
-        # Reconfirming the same source/title updates one record. Different source
-        # messages remain distinct until a later semantic deduplication review.
-        record_id = hashlib.sha256(
-            (str(record.get("mail_id", "manual")) + "|" + record["title"].strip()).encode()
-        ).hexdigest()
-        record["id"] = record_id
-        record["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return self.save_tasks([task])[0]
+
+    def save_tasks(self, tasks: list[dict]) -> list[str]:
+        """Save a reviewed selection atomically, updating matching source/title pairs."""
+        rows = []
+        updated_at = datetime.now(timezone.utc).isoformat()
+        for task in tasks:
+            record = dict(task)
+            record_id = hashlib.sha256(
+                (str(record.get("mail_id", "manual")) + "|" + record["title"].strip()).encode()
+            ).hexdigest()
+            record["id"] = record_id
+            record["updated_at"] = updated_at
+            rows.append((record_id, json.dumps(record, ensure_ascii=False)))
         with self.connect() as db:
-            db.execute(
+            db.executemany(
                 "INSERT INTO tasks VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
-                (record_id, json.dumps(record, ensure_ascii=False)),
+                rows,
             )
-        return record_id
+        return [row[0] for row in rows]
 
     def tasks(self) -> list[dict]:
         with self.connect() as db:

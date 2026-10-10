@@ -6,14 +6,15 @@ StudentFlow is a local productivity application that connects to Gmail, helps tu
 
 ## Use the app
 
-- **Inbox (Gmail):** connect an account, refresh the inbox, load more messages and open selected emails.
+- **Inbox (Gmail):** connect an account, browse messages and extract task suggestions from one or several selected emails.
 - **Tasks:** review and save tasks with deadlines, estimated study time and supporting text.
 - **Study Plan:** enter available time and commitments, generate a draft, then confirm before saving.
 - **Attachments:** read PDF and Word attachments and search their source text.
+- **Settings:** save an OpenAI API key on this device, choose a model and test the connection.
 
 The interface is in English. Original emails, quotations and user-entered content retain their source language.
 
-[User guide](docs/USER_GUIDE.md) · [Gmail setup](docs/GMAIL_SETUP.md)
+[User guide](docs/USER_GUIDE.md) · [Gmail setup](docs/GMAIL_SETUP.md) · [OpenAI setup](docs/OPENAI_SETUP.md)
 
 ## Run locally
 
@@ -36,7 +37,9 @@ Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to create a desktop OAuth cl
 
 ## Optional AI extraction
 
-Copy `.env.example` to `.env` and configure `OPENAI_API_KEY` and `OPENAI_MODEL`. Task extraction uses LangChain and a configured OpenAI API model. It runs only after explicit consent for the selected message. Suggestions must be reviewed before saving.
+Open **Settings**, enter an OpenAI API key, choose a model and select **Save AI settings**. Select **Test AI connection** to check the saved configuration with a short example. Settings are stored in the local `.env` file. See the [OpenAI setup guide](docs/OPENAI_SETUP.md) for billing and API key steps.
+
+Task extraction uses LangChain and the selected OpenAI model. In **Batch task extraction**, select messages, give consent and choose **Extract selected messages**. Review the suggestions together, edit their details and select the tasks to save. Each task retains its source message and supporting text. Successful results are reused within the current session when retrying the same messages with the same model.
 
 Tasks can also be entered manually in the message review form.
 
@@ -54,6 +57,6 @@ Tasks can also be entered manually in the message review form.
 uv run --locked python -m pytest -q
 ```
 
-Tests cover email parsing, attachment text extraction, task validation, scheduling and Gmail integration using synthetic inputs and mocked network services. Interface tests cover authorization, message opening, task review and study planning.
+Tests cover email parsing, attachment text extraction, task validation, scheduling and Gmail integration using synthetic inputs and mocked network services. Interface tests cover authorization, message opening, AI settings, batch extraction, task review and study planning.
 
 Entry point: `app.py`. Application modules: `src/studentflow/`. Tests: `tests/`.

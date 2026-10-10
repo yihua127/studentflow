@@ -18,7 +18,13 @@ try {
     $shortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $launcherPath + '"'
     $shortcut.WorkingDirectory = $PSScriptRoot
     $shortcut.Description = 'Open StudentFlow'
-    $shortcut.IconLocation = (Join-Path $env:SystemRoot 'System32\shell32.dll') + ',13'
+    $iconPath = Join-Path $PSScriptRoot 'assets\studentflow-icon.ico'
+    if (Test-Path -LiteralPath $iconPath -PathType Leaf) {
+        $shortcut.IconLocation = $iconPath + ',0'
+    }
+    else {
+        $shortcut.IconLocation = (Join-Path $env:SystemRoot 'System32\shell32.dll') + ',13'
+    }
     $shortcut.WindowStyle = 7
     $shortcut.Save()
     Write-Output "Created desktop shortcut: $shortcutPath"
