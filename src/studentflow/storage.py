@@ -9,7 +9,7 @@ import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from studentflow.task_dedup import merge_sources, same_task
+from studentflow.task_dedup import legacy_source_ids, merge_sources, same_task
 
 
 class Store:
@@ -51,7 +51,7 @@ class Store:
         if not db.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attachment_documents'"
         ).fetchone():
-            return sources
+            return legacy_source_ids(record, sources)
         recovered = []
         for source in sources:
             source = dict(source)
@@ -81,7 +81,7 @@ class Store:
                         source["attachment_sha256"] = digest
                         source["gmail_account"] = account or saved_account
             recovered.append(source)
-        return merge_sources([], recovered)
+        return legacy_source_ids(record, recovered)
 
     @staticmethod
     def _legacy_body_scope(previous: dict, sources: list[dict], incoming: dict) -> list[dict]:
@@ -178,6 +178,8 @@ class Store:
                 if record["completed_minutes"] and (record.get("estimated_minutes") or 0) < record["completed_minutes"]:
                     raise ValueError("The estimate cannot be less than the time already completed. Edit the task in Tasks.")
                 record.update(id=record_id, updated_at=updated_at)
+                if reviewed:
+                    record["sources"] = legacy_source_ids(record, record["sources"])
                 record = self._task(record)
                 db.execute(
                     "INSERT INTO tasks VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
@@ -192,6 +194,13 @@ class Store:
         with self.connect() as db:
             rows = db.execute("SELECT payload FROM tasks ORDER BY rowid").fetchall()
         return [self._task(json.loads(row[0])) for row in rows]
+
+    def task_references(self) -> list[dict]:
+        """Read task details with stable source IDs for semantic reconciliation."""
+        with self.connect() as db:
+            records = [self._task(json.loads(row[0]))
+                       for row in db.execute("SELECT payload FROM tasks ORDER BY rowid")]
+            return [dict(record, sources=self._evidence(record, db)) for record in records]
 
     def update_task(self, task_id: str, changes: dict, *, expected_updated_at=None) -> dict:
         """Edit a saved task by ID, with optimistic concurrency and preserved evidence."""

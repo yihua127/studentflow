@@ -10,6 +10,8 @@ from docx import Document
 
 from studentflow.task_dedup import (
     SOURCE_FIELDS,
+    body_source_hash,
+    legacy_source_ids,
     merge_duplicate_tasks,
     merge_sources,
     same_task,
@@ -208,3 +210,90 @@ def test_stable_first_candidate_and_order_with_multiple_tasks():
     result = merge_duplicate_tasks([first, different, duplicate])
     assert [item["_row_id"] for item in result] == ["first", "second"]
     assert result[0]["estimated_minutes"] is None
+
+
+def canonical_task(message=None, *, job="job-one", item="item-one", **changes):
+    return task(message, _source_key=hashlib.sha256(job.encode()).hexdigest(),
+                _source_item_id=hashlib.sha256(item.encode()).hexdigest(), **changes)
+
+
+def test_cached_identity_survives_changed_display_details():
+    original = canonical_task()
+    edited = canonical_task(title="Tutor-reviewed outline", due_at="2030-01-01T17:00:00+08:00",
+                            estimated_minutes=180)
+    assert same_task(original, edited)
+    assert len(merge_duplicate_tasks([original, edited])) == 1
+
+
+@pytest.mark.parametrize("job", ["job-one", "job-two"])
+def test_distinct_canonical_items_never_fall_back_to_same_title_and_quote(job):
+    first = canonical_task()
+    second = canonical_task(job=job, item="item-two")
+    assert not same_task(first, second)
+    assert len(merge_duplicate_tasks([first, second])) == 2
+
+
+def test_validated_aliases_link_new_and_old_generation_ids():
+    first = canonical_task(title="First extraction wording")
+    second = canonical_task(job="new-job", item="new-item", title="New wording for same action")
+    linked = deepcopy(second)
+    linked["sources"] = merge_sources(first["sources"], second["sources"])
+    assert same_task(first, linked) and same_task(second, linked)
+    for order in permutations([first, linked, second]):
+        merged = merge_duplicate_tasks(list(order))
+        assert len(merged) == 1
+        assert merged[0]["source_duplicate_count"] == 3
+
+
+def test_same_canonical_id_rejects_other_account_or_different_actual_file():
+    file = attachment()
+    original = canonical_task(mail(attachments=[file]), source_attachment_id="a1")
+    other_account = canonical_task(mail(gmail_account="other@example.invalid", attachments=[file]),
+                                   source_attachment_id="a1")
+    other_bytes = canonical_task(mail(attachments=[attachment(QUOTE + " Changed.")]), source_attachment_id="a1")
+    assert not same_task(original, other_account)
+    assert not same_task(original, other_bytes)
+    assert not same_task(canonical_task(), canonical_task(mail("other-body")))
+
+
+def test_same_canonical_id_keeps_course_scope_and_unknown_account_separate():
+    file = attachment()
+    original = canonical_task(mail("m1", subject="MATH101 assignment", attachments=[file]),
+                              source_attachment_id="a1")
+    other_course = canonical_task(mail("m2", subject="HIST201 assignment", attachments=[file]),
+                                  source_attachment_id="a1")
+    unknown_account = canonical_task(mail("m1", subject="MATH101 assignment", gmail_account=None,
+                                         attachments=[file]), source_attachment_id="a1")
+    assert not same_task(original, other_course)
+    assert not same_task(original, unknown_account)
+    assert len(merge_duplicate_tasks([original, other_course, unknown_account])) == 3
+    legacy = canonical_task(mail(gmail_account=None))
+    assert same_task(legacy, deepcopy(legacy))
+
+
+def test_source_ids_are_local_only_and_bound_to_actual_source_hash():
+    message = mail()
+    correct = canonical_task(message, _source_hash=body_source_hash(message))
+    assert correct["sources"][0]["source_item_id"]
+    incorrect = canonical_task(message, _source_hash=hashlib.sha256(b"different body").hexdigest())
+    assert incorrect["sources"][0]["source_item_id"] is None
+    raw_model_fields = task(message, source_key="a" * 64, source_item_id="b" * 64)
+    assert raw_model_fields["sources"][0]["source_item_id"] is None
+    file = attachment()
+    correct_file = canonical_task(mail(attachments=[file]), source_attachment_id="a1",
+                                  _source_hash=hashlib.sha256(file["content"]).hexdigest())
+    assert correct_file["sources"][0]["source_item_id"]
+    stale_file = canonical_task(mail(attachments=[file]), source_attachment_id="a1", _source_hash="a" * 64)
+    assert stale_file["sources"][0]["source_item_id"] is None
+
+
+def test_legacy_ids_are_deterministic_and_source_upgrade_does_not_duplicate_evidence():
+    old = {"id": "old-task-id"}
+    sources = task()["sources"]
+    original = deepcopy(sources)
+    upgraded = legacy_source_ids(old, sources)
+    assert sources == original
+    assert upgraded[0]["source_item_id"] == hashlib.sha256(b"saved-task|old-task-id").hexdigest()
+    assert upgraded[0]["source_key"] == hashlib.sha256(b"saved-source|m1").hexdigest()
+    assert merge_sources(sources, upgraded) == upgraded
+    assert merge_sources(upgraded, sources) == upgraded

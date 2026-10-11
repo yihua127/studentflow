@@ -39,11 +39,13 @@ Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to create a desktop OAuth cl
 
 Open **Settings**, enter an OpenAI API key, choose a model and select **Save AI settings**. Select **Test AI connection** to check the saved configuration with a short example. Settings are stored in the local `.env` file. See the [OpenAI setup guide](docs/OPENAI_SETUP.md) for billing and API key steps.
 
-Task extraction uses LangChain and the selected OpenAI model to analyze message text and readable PDF/Word attachments. In **Task extraction**, refresh the inbox, select one or more messages, give consent and choose **Extract tasks**. Review the suggestions together, edit their details and select the tasks to save. **Confirmed** requires a deadline and estimated study time greater than zero. Each task retains its source message, supporting text and attachment reference where applicable. Successful results are reused within the current session when retrying unchanged messages and attachments with the same model.
+Task extraction uses LangChain and the selected OpenAI model to analyze message text and readable PDF/Word attachments. In **Task extraction**, refresh the inbox, select one or more messages, give consent and choose **Extract tasks**. Review the suggestions together, edit their details and select the tasks to save. **Confirmed** requires a deadline and estimated study time greater than zero. Each task retains its source message, supporting text and attachment reference where applicable.
+
+Successful source analysis is saved on this device and reused for the same account, content and model, including after restarting. Identical attachment copies share one analysis and the same task identities. Select **Analyze completed messages again** when a fresh analysis is needed.
 
 Select **View selected messages** to read the chosen messages and load their attachments. Tasks can also be entered manually in the message review form.
 
-Each message can produce several tasks, each with its own deadline. Repeated mentions of the same task in a message or a copied attachment are combined for review, with the supporting sources retained. Matching uses the task details and actual attachment content, including common title variations such as an omitted “Submit” before an assignment name. Saving a recognized task again keeps its existing details and study progress. All retained quotations can be viewed under **Original supporting text** on the Tasks page.
+Each message can produce several tasks, each with its own deadline. Repeated copies of an extracted task are combined for review, with supporting sources retained. Related suggestions from different sources or a fresh analysis are checked against each other and related saved tasks using their meaning and source evidence. Uncertain matches remain separate for review. Saving a recognized task again keeps its existing details and study progress. All retained quotations can be viewed under **Original supporting text** on the Tasks page.
 
 ## Track study progress
 
@@ -56,7 +58,8 @@ The app checks for daily reviews while its window is open and shows missed revie
 - Gmail connections use the `gmail.readonly` permission.
 - Gmail sign-in is remembered on this device and restored automatically when StudentFlow opens. **Disconnect Gmail** signs out of the device; **Switch account** selects another account.
 - The inbox loads up to 20 messages at a time. Select **Load more** to append the next 20, or **Refresh inbox** to start again with the latest messages. Opening a selected message loads its text and attachments.
-- Tasks, progress, preferences, plans, attachment originals and sign-in data are stored locally in the `data/` directory.
+- Tasks, progress, preferences, plans, source analysis, attachment originals and sign-in data are stored locally in the `data/` directory.
+- After consent, AI extraction uses selected message and attachment text and relevant saved task details to identify tasks and check related suggestions for duplicates.
 - Attachments associated with extracted or saved tasks stay available until manually deleted. Other opened attachments can be kept using **Save attachment**.
 - Disconnecting removes the local Gmail sign-in and clears opened messages. Previously saved tasks remain.
 

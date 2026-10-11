@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -13,11 +13,19 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from studentflow.attachment_library import AttachmentLibrary
-from studentflow.extraction import attachment_fingerprint, evidence_text, extract_tasks
+from studentflow.extraction import (
+    SYSTEM_PROMPT,
+    attachment_fingerprint,
+    evidence_text,
+    extract_tasks,
+)
+from studentflow.extraction_cache import ExtractionCache
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.ingestion import parse_eml_bytes
+from studentflow.source_extraction import analyze_sources
 from studentflow.storage import Store
 from studentflow.task_dedup import merge_duplicate_tasks, merge_sources, source_evidence
+from studentflow.task_reconciliation import reconcile_tasks
 
 ZONE = ZoneInfo("Asia/Singapore")
 
@@ -30,7 +38,8 @@ def clear_batch_state():
 
 
 def extraction_key(account: str, mail: dict, model: str) -> str:
-    payload = [account.casefold(), mail["body"], mail["subject"], mail.get("sent_at"), model,
+    payload = ["source-pipeline-v1", SYSTEM_PROMPT, account.casefold(),
+               mail["body"], mail["subject"], mail.get("sent_at"), model,
                attachment_fingerprint(mail.get("attachments", []))]
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
@@ -81,12 +90,13 @@ def fetch_selected_messages(
 
 def run_batch(
     message_ids, credential_path, token_path, profile, mails, cache, candidates,
-    api_key, model, *, reanalyze=False, progress=None,
+    api_key, model, *, reanalyze=False, progress=None, source_cache=None,
+    references=None, reconciler=None, reconciliation_cache=None,
 ):
-    """Verify and fetch first, then analyze at most 3 messages concurrently.
+    """Verify access, analyze unique sources, then resolve related suggestions.
 
-    Cached results are session-local and account/content/model scoped. Gmail is
-    never shared between workers. Auth failures stop before any new model call.
+    Successful source analysis can persist across sessions, scoped by account,
+    content and model. Gmail is never shared between workers. Auth failures stop before any new model call.
     Individual message/model failures preserve other results for focused retries.
     """
     opened = fetch_selected_messages(
@@ -106,42 +116,75 @@ def run_batch(
         mail = mails[entry["mail_id"]]
         key = extraction_key(account, mail, model)
         entry["cache_key"] = key
-        if key in cache and not reanalyze:
+        # Resolve persistent sources together so a fresh analysis of one copy
+        # cannot leave another copy using older session-only item identities.
+        if source_cache is None and key in cache and not reanalyze:
             entry.update(result=cache[key], cached=True)
             results[message_id] = entry
             candidates[mail["id"]] = cache[key]
         else:
             pending[message_id] = (mail, entry)
 
-    completed = len(results)
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            executor.submit(
-                extract_tasks, mail["body"], mail["subject"], mail.get("sent_at"), api_key, model,
-                **({"attachments": mail["attachments"]} if mail.get("attachments") else {}),
-            ): (message_id, mail, entry)
-            for message_id, (mail, entry) in pending.items()
-        }
-        for future in as_completed(futures):
-            message_id, mail, entry = futures[future]
-            try:
-                result = future.result()
-                if not isinstance(result, dict) or not isinstance(result.get("tasks"), list):
-                    raise ValueError("Invalid extraction response")
+    analyzed = analyze_sources(
+        [mail for mail, _entry in pending.values()], account, api_key, model,
+        extractor=extract_tasks, cache=source_cache, reanalyze=reanalyze,
+        progress=(lambda value, text: progress(0.4 + 0.5 * value, text)) if progress else None,
+    ) if pending else {}
+    for message_id, (mail, entry) in pending.items():
+        outcome = analyzed.get(mail["id"], {})
+        if "result" in outcome:
+            result = outcome["result"]
+            if not outcome.get("partial"):
                 cache[entry["cache_key"]] = result
-                candidates[mail["id"]] = result
-                entry.update(result=result, cached=False)
-            except ValueError as exc:
-                entry["error"] = str(exc)
-            except Exception:
-                entry["error"] = "Task extraction failed. Check the AI connection and select this message to retry."
-            results[message_id] = entry
-            completed += 1
-            if progress:
-                progress(0.4 + 0.6 * completed / len(identifiers), f"Analyzed {completed} of {len(identifiers)} messages.")
+            candidates[mail["id"]] = result
+            entry.update(result=result, cached=outcome.get("cached", False))
+        else:
+            entry["error"] = outcome.get("error") or "Task extraction failed. Select this message to retry."
+        results[message_id] = entry
+    ordered = [results[message_id] for message_id in identifiers]
+    if reconciler is not None:
+        if progress:
+            progress(0.95, "Checking related task suggestions...")
+        ordered = reconcile_batch_results(
+            ordered, mails, references or [], api_key, model,
+            reconciler=reconciler, cache=reconciliation_cache,
+        )
     if progress:
         progress(1.0, "Selected messages processed.")
-    return [results[message_id] for message_id in identifiers]
+    return ordered
+
+
+def reconcile_batch_results(results, mails, references, api_key, model, *, reconciler, cache=None):
+    """Resolve source-linked ambiguity only within an explicit extraction action."""
+    proposals = []
+    for entry in results:
+        mail = mails.get(entry.get("mail_id"))
+        if mail is None:
+            continue
+        for task in entry.get("result", {}).get("tasks", []):
+            proposals.append({**task, "sources": [source_evidence(task, mail)]})
+    payload = ["semantic-review-v1", model, proposals, references]
+    key = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    verdict = cache.get(key) if cache is not None else None
+    if verdict is None:
+        try:
+            verdict = reconciler(proposals, references, api_key, model)
+        except Exception:
+            verdict = {"links": {}, "warnings": [
+                "Some related suggestions need review. Check for repeated tasks before saving."
+            ]}
+        if cache is not None and not verdict.get("warnings"):
+            cache[key] = verdict
+    output = deepcopy(results)
+    for entry in output:
+        if "result" not in entry:
+            continue
+        for task in entry["result"]["tasks"]:
+            linked = verdict.get("links", {}).get(task.get("_source_item_id"))
+            if linked:
+                task["_linked_sources"] = linked
+        entry["result"].setdefault("warnings", []).extend(verdict.get("warnings", []))
+    return output
 
 
 def review_rows(results: list[dict], mails: dict) -> tuple[list[dict], dict]:
@@ -156,7 +199,7 @@ def review_rows(results: list[dict], mails: dict) -> tuple[list[dict], dict]:
             row_id = f"{entry['cache_key']}:{index}:{entry['gmail_id']}"
             proposals.append({
                 **task, "_row_id": row_id, "_primary_mail": mail,
-                "sources": [source_evidence(task, mail)],
+                "sources": merge_sources([source_evidence(task, mail)], task.get("_linked_sources", [])),
             })
     rows, sources = [], {}
     for task in merge_duplicate_tasks(proposals):
@@ -331,17 +374,17 @@ def render_batch_extraction(
                 st.error("The selected messages could not be opened. Try again.")
     if not api_key or not model:
         st.info("Add your OpenAI API key in Settings to extract tasks.")
-    # An existing browser session may have consented to body-only extraction.
-    if st.session_state.get("batch_consent_scope") != "message-and-attachments-v1":
+    # Reconfirm the scope when upgrading from selected-message-only analysis.
+    if st.session_state.get("batch_consent_scope") != "sources-and-related-tasks-v2":
         st.session_state.batch_consent = False
-        st.session_state.batch_consent_scope = "message-and-attachments-v1"
+        st.session_state.batch_consent_scope = "sources-and-related-tasks-v2"
     consent = st.checkbox(
-        "Allow the selected messages' subjects, text, dates and readable attachment text to be sent to OpenAI for task extraction. Usage charges may apply.",
+        "Allow selected messages, readable attachments and related saved task details to be sent to OpenAI to extract tasks and check for duplicates. Usage charges may apply.",
         key="batch_consent",
     )
     reanalyze = st.checkbox(
         "Analyze completed messages again", key="batch_reanalyze",
-        help="By default, results from this session are reused for the same account, message and model. Repeating analysis may incur additional charges.",
+        help="Saved source analysis is reused by default. Select this to analyze the chosen messages and attachments again; usage charges may apply.",
     )
     if st.button("Extract tasks", key="batch_extract", type="primary",
                  disabled=not (ready and api_key and model and consent and selected)):
@@ -352,8 +395,12 @@ def render_batch_extraction(
                 selected, credential_path, token_path, st.session_state.get("gmail_profile"),
                 st.session_state.mails, cache, st.session_state.candidates, api_key, model,
                 reanalyze=reanalyze, progress=lambda value, text: progress.progress(value, text=text),
+                source_cache=ExtractionCache(store.path), references=store.task_references(),
+                reconciler=reconcile_tasks,
+                reconciliation_cache=st.session_state.setdefault("batch_reconciliation_cache", {}),
             )
             st.session_state.batch_results = results
+            st.session_state.batch_results_version = "source-pipeline-v1"
             try:
                 library = AttachmentLibrary(store.path)
                 for entry in results:
@@ -378,6 +425,9 @@ def render_batch_extraction(
     results = st.session_state.get("batch_results", [])
     if not results:
         return
+    if any(not task.get("_source_item_id") for entry in results
+           for task in entry.get("result", {}).get("tasks", [])):
+        st.info("Select Extract tasks to refresh these suggestions with duplicate checking.")
     warnings = []
     for entry in results:
         name = by_id.get(entry["gmail_id"], {}).get("subject") or "Message"
@@ -427,7 +477,8 @@ def render_batch_extraction(
                                 for source in record.get("sources", [])}
                     mail_ids.update(record["mail_id"] for record in records)
                     for mail_id in mail_ids:
-                        library.save_for_message(st.session_state.mails[mail_id])
+                        if mail_id in st.session_state.mails:
+                            library.save_for_message(st.session_state.mails[mail_id])
                 except Exception:
                     st.warning("Tasks were saved, but some attachments could not be kept. Save again to retry.")
                 pending = sum(task["status"] == "pending" for task in store.tasks()

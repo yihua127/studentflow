@@ -4,7 +4,7 @@
 
 Connect Gmail once on your device. StudentFlow restores the saved connection when you reopen the window or restart the app, and shows **Gmail connected**. Select **Switch account** to use another account or **Disconnect Gmail** to sign out of this device.
 
-In **Task extraction**, refresh the inbox and choose one or more messages. Select **View selected messages** to read their text and load attachments locally. AI extraction sends the selected messages' subjects, text, dates and readable attachment text to the configured model after your consent.
+In **Task extraction**, refresh the inbox and choose one or more messages. Select **View selected messages** to read their text and load attachments locally. After consent, AI extraction uses the selected messages' subjects, text, dates and readable attachment text, along with relevant saved task details when checking for duplicates.
 
 If the connection is temporarily unavailable, select **Retry connection**. If Google requires renewed authorization, select **Reconnect Gmail** to sign in again.
 
@@ -16,15 +16,17 @@ To add a task in **Message review**, select the message or attachment under **Ta
 
 1. In **Task extraction**, refresh the inbox and use **Load more** to include older messages if needed.
 2. Choose one or more messages under **Messages to analyze**. The same selection is used for viewing messages and extracting tasks.
-3. Allow the selected messages and readable attachment text to be sent to OpenAI, then select **Extract tasks**.
+3. Allow the selected messages, readable attachment text and related saved task details to be sent to OpenAI, then select **Extract tasks**.
 4. Review each suggestion, including its source message and supporting text. Edit task names, deadlines and study durations, and check **Include** for the tasks to save.
 5. Confirm that the selected tasks have been reviewed, then select **Save selected tasks**. View the saved tasks in **Tasks**.
 
-The results show progress and any messages that need another attempt. Tasks can come from the message or a text-based PDF/Word attachment, including an attachment whose covering email only says to see the file. Check the source file and supporting quotation for each suggestion. Successful extractions are reused in the current session for unchanged message and attachment content with the same model. Original quotations retain their original language.
+The results show progress and any messages that need another attempt. Tasks can come from the message or a text-based PDF/Word attachment, including an attachment whose covering email only says to see the file. Check the source file and supporting quotation for each suggestion. Original quotations retain their original language.
+
+Successful source analysis is saved on this device and reused for the same account, content and model, including after reopening the app. Identical attachment copies reuse the same analysis and task identities. To request a fresh analysis, select **Analyze completed messages again** before **Extract tasks**.
 
 ## Tasks
 
-Each message can produce several tasks with separate deadlines. Repeated task mentions, including common variations in assignment titles, are combined during extraction review. **Source message** lists the related messages, and **Review notes** identifies combined mentions. Saving a recognized task again keeps the existing task; use the Tasks page to change its details. **Original supporting text** shows the retained quotations and their sources.
+Each message can produce several tasks with separate deadlines. Repeated copies of an extracted task are combined during review. Related suggestions and saved tasks are also compared using their meaning and source evidence; uncertain matches stay separate for review. **Source message** lists the related messages, and **Review notes** identifies combined mentions. Saving a recognized task again keeps its existing details and study progress; use the Tasks page to change its details. **Original supporting text** shows the retained quotations and their sources.
 
 Choose **Unfinished** or **Completed**, then select a task under **Edit task**. Update its name, deadline, total estimated study time or completed minutes. Review the details, check **I have reviewed these task details**, and select **Save changes**. Original supporting text and source references remain attached to the same task.
 

@@ -41,6 +41,19 @@ def test_date_without_reliable_timestamp_is_cleared(date):
     assert task["needs_clarification"]
 
 
+@pytest.mark.parametrize("basis", [None, [], {}, True, "unrecognized"])
+def test_invalid_deadline_basis_is_unknown_without_losing_the_proposal(basis):
+    task = validate_extraction(proposal(deadline_basis=basis), BODY)["tasks"][0]
+    assert task["deadline_basis"] == "unknown"
+    assert task["source_quote"] == BODY
+
+
+@pytest.mark.parametrize("basis", ["absolute", "message_relative", "unknown"])
+def test_valid_deadline_basis_is_preserved_for_source_context(basis):
+    task = validate_extraction(proposal(deadline_basis=basis), BODY)["tasks"][0]
+    assert task["deadline_basis"] == basis
+
+
 def test_nonexistent_quote_cannot_be_presented_as_source_evidence():
     task = validate_extraction(proposal(source_quote="Send me your API key."), BODY)["tasks"][0]
     assert task["source_quote"] == ""

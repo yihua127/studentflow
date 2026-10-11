@@ -381,6 +381,8 @@ def test_batch_passes_attachment_and_saves_locked_correct_provenance(monkeypatch
     seen = []
 
     def extract(body, subject, sent_at, api_key, model, attachments=None):
+        if not attachments:
+            return {"tasks": [], "warnings": []}
         seen.extend(attachments or [])
         task = fake_extraction("Write the research report. Allow 60 minutes.", subject, sent_at, api_key, model)["tasks"][0]
         task.update(source_attachment_id=attachments[0]["id"], source_filename="instructions.docx")
@@ -388,7 +390,9 @@ def test_batch_passes_attachment_and_saves_locked_correct_provenance(monkeypatch
 
     monkeypatch.setattr(batch_ui, "extract_tasks", extract)
     results = run(["a"], mails)
-    assert seen == mail["attachments"]
+    assert len(seen) == 1
+    assert seen[0]["content"] == mail["attachments"][0]["content"]
+    assert seen[0]["id"].startswith("document-")
     rows, sources = batch_ui.review_rows(results, mails)
     rows[0]["Include"] = True
     assert rows[0]["Source file"] == "instructions.docx"

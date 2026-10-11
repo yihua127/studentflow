@@ -276,3 +276,56 @@ def test_sources_are_sanitized_before_persistence(tmp_path):
     store.save_task(record)
     [source] = store.tasks()[0]["sources"]
     assert not {"raw_message", "content", "api_key"} & source.keys()
+
+
+def canonical_proposal(*, item="one", key="job-one", **changes):
+    record = proposal(**changes)
+    record["sources"][0].update(source_key=hashlib.sha256(key.encode()).hexdigest(),
+                                source_item_id=hashlib.sha256(item.encode()).hexdigest())
+    return record
+
+
+def test_same_canonical_item_preserves_all_user_edits_with_changed_extraction_label(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    identifier = store.save_task(canonical_proposal())
+    saved = store.update_task(identifier, {"title": "My outline", "due_at": "2030-01-07T17:00:00+08:00",
+                                          "estimated_minutes": 90, "completed_minutes": 90})
+    assert store.save_task(canonical_proposal(title="Research outline submission", estimated_minutes=120,
+                                               due_at="2030-01-08T17:00:00+08:00")) == identifier
+    assert store.tasks() == [saved]
+
+
+@pytest.mark.parametrize("key", ["job-one", "job-two"])
+def test_distinct_canonical_items_with_identical_text_have_distinct_saved_ids(tmp_path, key):
+    store = Store(tmp_path / "state.sqlite3")
+    first = store.save_task(canonical_proposal())
+    second = store.save_task(canonical_proposal(item="two", key=key))
+    assert first != second
+    assert len(store.tasks()) == 2
+
+
+def test_task_references_decorate_legacy_records_without_writing_the_database(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    identifier = store.save_task(legacy(proposal()))
+    with store.connect() as db:
+        original = db.execute("SELECT id, payload FROM tasks").fetchall()
+    [reference] = store.task_references()
+    assert reference["sources"][0]["source_item_id"] == hashlib.sha256(("saved-task|" + identifier).encode()).hexdigest()
+    assert reference["sources"][0]["source_key"] == hashlib.sha256(b"saved-source|mail-one").hexdigest()
+    with store.connect() as db:
+        assert db.execute("SELECT id, payload FROM tasks").fetchall() == original
+    assert "sources" not in store.tasks()[0]
+
+
+def test_semantic_alias_to_saved_legacy_reference_reuses_task_without_name_matching(tmp_path):
+    store = Store(tmp_path / "state.sqlite3")
+    identifier = store.save_task(legacy(proposal()))
+    saved = store.update_task(identifier, {"title": "Edited personal name", "completed_minutes": 60})
+    [reference] = store.task_references()
+    incoming = canonical_proposal(title="A new phrasing of this action")
+    incoming["sources"].extend(reference["sources"])
+    assert store.save_task(incoming) == identifier
+    [updated] = store.tasks()
+    assert updated["title"] == saved["title"] and updated["completed_minutes"] == 60
+    assert len(updated["sources"]) == 2
+    assert "_extraction_identity" in store.task_references()[0]

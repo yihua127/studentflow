@@ -1,14 +1,14 @@
 """Conservative, source-bound duplicate detection for reviewed task proposals.
 
-Only matching task labels and compatible deadlines/effort are candidates.
-Optional delivery/attendance verbs are normalized for specific academic items.
-Mail identity or the bytes of a shared attachment must also connect the evidence.
+Canonical source item IDs identify cached and semantically linked proposals.
+Legacy proposals retain conservative title matching. Provenance must also match.
 No model calls or persistent changes are made here.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import unicodedata
 from copy import deepcopy
@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 SOURCE_FIELDS = (
     "mail_id", "gmail_account", "mail_subject", "mail_sent_at",
     "source_attachment_id", "source_filename", "source_quote", "attachment_sha256",
+    "source_key", "source_item_id",
 )
 _COURSE_CODE = re.compile(r"\b([A-Za-z]{2,8})[ -]?(\d{3,5}[A-Za-z]?)\b")
 _NON_COURSE_PREFIXES = {
@@ -80,6 +81,11 @@ def _clean_source(source: dict) -> dict:
     result["gmail_account"] = _text(result["gmail_account"]).strip().casefold() or None
     digest = _text(result["attachment_sha256"]).strip().lower()
     result["attachment_sha256"] = digest if re.fullmatch(r"[0-9a-f]{64}", digest) else None
+    for field in ("source_key", "source_item_id"):
+        value = _text(result[field])
+        result[field] = value if re.fullmatch(r"[0-9a-f]{64}", value) else None
+    if not result["source_key"] or not result["source_item_id"]:
+        result["source_key"] = result["source_item_id"] = None
     return result
 
 
@@ -105,13 +111,24 @@ def source_evidence(task: dict, mail: dict) -> dict:
     content = (attachment or {}).get("content")
     digest = (hashlib.sha256(content).hexdigest()
               if isinstance(content, (bytes, bytearray)) and content else None)
+    expected_hash = task.get("_source_hash")
+    actual_hash = digest if attachment_id is not None else body_source_hash(mail)
+    matching_source = expected_hash is None or expected_hash == actual_hash
     return _clean_source({
         "mail_id": mail.get("id"), "gmail_account": mail.get("gmail_account"),
         "mail_subject": mail.get("subject"), "mail_sent_at": mail.get("sent_at"),
         "source_attachment_id": attachment_id,
         "source_filename": attachment.get("filename") if attachment else None,
         "source_quote": quote, "attachment_sha256": digest,
+        "source_key": task.get("_source_key") if matching_source else None,
+        "source_item_id": task.get("_source_item_id") if matching_source else None,
     })
+
+
+def body_source_hash(mail: dict) -> str:
+    """Identify exactly the body inputs used by the cached source extraction."""
+    payload = [mail.get("subject") or "", mail.get("body") or "", mail.get("sent_at")]
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
 def evidence_for_task(task: dict, mail: dict) -> list[dict]:
@@ -130,9 +147,33 @@ def merge_sources(left: list[dict], right: list[dict]) -> list[dict]:
             clean = _clean_source(source)
             identity = tuple(clean[key] for key in SOURCE_FIELDS)
             if identity not in seen:
+                # Adding canonical IDs to otherwise identical old evidence must
+                # not leave two copies of the same source in saved records.
+                duplicate = next((item for item in result
+                                  if all(item[key] == clean[key] for key in SOURCE_FIELDS[:-2])
+                                  and (not item["source_item_id"] or not clean["source_item_id"])), None)
+                if duplicate is not None:
+                    if not duplicate["source_item_id"] and clean["source_item_id"]:
+                        duplicate.update(source_key=clean["source_key"], source_item_id=clean["source_item_id"])
+                    seen.add(identity)
+                    continue
                 seen.add(identity)
                 result.append(clean)
     return result
+
+
+def legacy_source_ids(record: dict, sources: list[dict]) -> list[dict]:
+    """Decorate saved legacy evidence with opaque IDs without changing the record."""
+    cleaned = merge_sources([], sources)
+    identifier = record.get("id")
+    if not isinstance(identifier, str) or not identifier:
+        return cleaned
+    item_id = hashlib.sha256(("saved-task|" + identifier).encode()).hexdigest()
+    for source in cleaned:
+        if not source.get("source_item_id") and source.get("mail_id"):
+            source["source_item_id"] = item_id
+            source["source_key"] = hashlib.sha256(("saved-source|" + source["mail_id"]).encode()).hexdigest()
+    return cleaned
 
 
 def _sources(task: dict) -> list[dict]:
@@ -191,7 +232,7 @@ def _compatible(left: dict, right: dict) -> bool:
     return True
 
 
-def _evidence_related(left: dict, right: dict, *, missing_due: bool) -> bool:
+def _evidence_related(left: dict, right: dict, *, missing_due: bool, check_context: bool = True) -> bool:
     account_a, account_b = left.get("gmail_account"), right.get("gmail_account")
     if account_a and account_b and account_a != account_b:
         return False
@@ -206,26 +247,54 @@ def _evidence_related(left: dict, right: dict, *, missing_due: bool) -> bool:
     if not (same_mail or same_attachment):
         return False
     quote_a, quote_b = left["source_quote"], right["source_quote"]
-    for field in ("source_quote", "mail_subject"):
-        courses_a = _course_codes(_text(left.get(field)))
-        courses_b = _course_codes(_text(right.get(field)))
-        if courses_a and courses_b and courses_a.isdisjoint(courses_b):
-            return False
+    if check_context:
+        for field in ("source_quote", "mail_subject"):
+            courses_a = _course_codes(_text(left.get(field)))
+            courses_b = _course_codes(_text(right.get(field)))
+            if courses_a and courses_b and courses_a.isdisjoint(courses_b):
+                return False
     return not missing_due or _normalized(quote_a) == _normalized(quote_b)
 
 
+def _shared_source_item(left: dict, right: dict) -> bool:
+    return any(a.get("source_item_id") and a["source_item_id"] == b.get("source_item_id")
+               and a.get("source_key") == b.get("source_key")
+               and a.get("gmail_account") == b.get("gmail_account")
+               and _evidence_related(a, b, missing_due=False)
+               for a in _sources(left) for b in _sources(right))
+
+
 def same_task(left: dict, right: dict) -> bool:
-    """Whether two task identities have compatible details and linked evidence.
+    """Recognize canonical items independently of user-editable task details.
 
     Nonempty quotes in supplied sources must already have been validated using
     source_evidence. Legacy stored provenance is accepted as previously reviewed.
     A missing account never proves a same-mail link to a known different scope.
     """
+    if _shared_source_item(left, right):
+        return True
+    left_ids = {source["source_item_id"] for source in _sources(left) if source.get("source_item_id")}
+    right_ids = {source["source_item_id"] for source in _sources(right) if source.get("source_item_id")}
+    # A new canonical item requires an explicit semantic alias to an old one.
+    # Labels, dates, or quotations cannot override a distinct item identity.
+    if left_ids and right_ids:
+        return False
     if not _compatible(left, right):
         return False
     missing_due = _deadline(left.get("due_at")) is None
     return any(_evidence_related(a, b, missing_due=missing_due)
                for a in _sources(left) for b in _sources(right))
+
+
+def _merge_candidate(kept: dict, candidate: dict) -> None:
+    kept["sources"] = merge_sources(kept["sources"], candidate["sources"])
+    notes = []
+    for member in (kept, candidate):
+        for note in member.get("needs_clarification", []):
+            if isinstance(note, str) and note not in notes:
+                notes.append(note)
+    kept["needs_clarification"] = notes
+    kept["source_duplicate_count"] += candidate["source_duplicate_count"]
 
 
 def merge_duplicate_tasks(tasks: list[dict]) -> list[dict]:
@@ -242,19 +311,23 @@ def merge_duplicate_tasks(tasks: list[dict]) -> list[dict]:
         count = candidate.get("source_duplicate_count", 1)
         candidate["source_duplicate_count"] = count if type(count) is int and count > 0 else 1
         for index, kept in enumerate(results):
-            if (all(_compatible(member, candidate) for member in groups[index])
-                    and same_task(kept, candidate)):
-                kept["sources"] = merge_sources(kept["sources"], candidate["sources"])
-                notes = []
-                for member in (kept, candidate):
-                    for note in member.get("needs_clarification", []):
-                        if isinstance(note, str) and note not in notes:
-                            notes.append(note)
-                kept["needs_clarification"] = notes
-                kept["source_duplicate_count"] += candidate["source_duplicate_count"]
+            if (same_task(kept, candidate) and (
+                    _shared_source_item(kept, candidate)
+                    or all(_compatible(member, candidate) for member in groups[index]))):
+                _merge_candidate(kept, candidate)
                 groups[index].append(candidate)
                 break
         else:
             results.append(candidate)
             groups.append([deepcopy(candidate)])
+    # A validated alias may arrive after both generations were added. Close only
+    # explicit canonical links; never create transitive links from title guesses.
+    for index, kept in enumerate(results):
+        other = index + 1
+        while other < len(results):
+            if _shared_source_item(kept, results[other]):
+                _merge_candidate(kept, results.pop(other))
+                other = index + 1
+            else:
+                other += 1
     return results
