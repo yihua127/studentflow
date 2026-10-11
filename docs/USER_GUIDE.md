@@ -24,7 +24,7 @@ The results show progress and any messages that need another attempt. Tasks can 
 
 ## Tasks
 
-Repeated task mentions are combined during extraction review. **Source message** lists the related messages, and **Review notes** identifies combined mentions. Saving a recognized task again keeps the existing task; use the Tasks page to change its details. **Original supporting text** shows the retained quotations and their sources.
+Each message can produce several tasks with separate deadlines. Repeated task mentions, including common variations in assignment titles, are combined during extraction review. **Source message** lists the related messages, and **Review notes** identifies combined mentions. Saving a recognized task again keeps the existing task; use the Tasks page to change its details. **Original supporting text** shows the retained quotations and their sources.
 
 Choose **Unfinished** or **Completed**, then select a task under **Edit task**. Update its name, deadline, total estimated study time or completed minutes. Review the details, check **I have reviewed these task details**, and select **Save changes**. Original supporting text and source references remain attached to the same task.
 

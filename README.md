@@ -43,7 +43,7 @@ Task extraction uses LangChain and the selected OpenAI model to analyze message 
 
 Select **View selected messages** to read the chosen messages and load their attachments. Tasks can also be entered manually in the message review form.
 
-Repeated mentions of the same task in a message or a copied attachment are combined for review, with the supporting sources retained. Matching uses the task details and actual attachment content. Saving a recognized task again keeps its existing details and study progress. All retained quotations can be viewed under **Original supporting text** on the Tasks page.
+Each message can produce several tasks, each with its own deadline. Repeated mentions of the same task in a message or a copied attachment are combined for review, with the supporting sources retained. Matching uses the task details and actual attachment content, including common title variations such as an omitted “Submit” before an assignment name. Saving a recognized task again keeps its existing details and study progress. All retained quotations can be viewed under **Original supporting text** on the Tasks page.
 
 ## Track study progress
 

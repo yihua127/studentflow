@@ -1,6 +1,7 @@
 """Conservative, source-bound duplicate detection for reviewed task proposals.
 
-Only exact normalized titles and compatible deadlines/effort are candidates.
+Only matching task labels and compatible deadlines/effort are candidates.
+Optional delivery/attendance verbs are normalized for specific academic items.
 Mail identity or the bytes of a shared attachment must also connect the evidence.
 No model calls or persistent changes are made here.
 """
@@ -23,6 +24,18 @@ _NON_COURSE_PREFIXES = {
     "september", "october", "november", "december", "year", "page",
 }
 _INVALID_DEADLINE = object()
+# A bare academic label has ONE action family, never a wildcard. This prevents
+# an omitted verb from bridging, for example, preparing and submitting slides
+# when proposals are merged or saved in different orders.
+_SUBMISSION_ITEMS = (
+    "outline", "essay", "slides", "report", "assignment", "homework",
+    "proposal", "paper", "application", "worksheet", "problem set",
+)
+_ATTENDANCE_ITEMS = (
+    "quiz", "exam", "test", "presentation", "lecture", "seminar", "workshop", "meeting",
+)
+_ASSESSMENT_ITEMS = ("quiz", "exam", "test")
+_ACTION_PREFIX = re.compile(r"^(?:please )?(submit|upload|hand in|turn in|attend|take|sit) (.+)$")
 
 
 def _text(value) -> str:
@@ -33,6 +46,32 @@ def _normalized(value, *, title=False) -> str:
     result = " ".join(unicodedata.normalize("NFKC", _text(value)).casefold().split())
     # Do not strip internal punctuation, digits, course names, or action words.
     return result.rstrip(" .!?。！？;；:") if title else result
+
+
+def _ends_with_item(label: str, items: tuple[str, ...]) -> bool:
+    return any(label == item or label.endswith(" " + item) for item in items)
+
+
+def _title_identity(value) -> tuple[str, str]:
+    """Match omitted verbs only for a bounded academic noun/action pairing.
+
+    Keep object wording, course codes, numbers and all other action words exact.
+    In particular, "Prepare slides" and "Submit slides" stay separate even if
+    the same batch also contains the ambiguous label "slides".
+    """
+    title = _normalized(value, title=True)
+    match = _ACTION_PREFIX.fullmatch(title)
+    action, label = match.groups() if match else (None, title)
+    label = label.removeprefix("the ")
+    if (action in {None, "submit", "upload", "hand in", "turn in"}
+            and _ends_with_item(label, _SUBMISSION_ITEMS)):
+        return "submission", label
+    attendance_action = action in {None, "attend"} or (
+        action in {"take", "sit"} and _ends_with_item(label, _ASSESSMENT_ITEMS)
+    )
+    if attendance_action and _ends_with_item(label, _ATTENDANCE_ITEMS):
+        return "attendance", label
+    return "exact", title
 
 
 def _clean_source(source: dict) -> dict:
@@ -129,7 +168,7 @@ def _course_codes(quote: str) -> set[str]:
 
 def _compatible(left: dict, right: dict) -> bool:
     title = _normalized(left.get("title"), title=True)
-    if not title or title != _normalized(right.get("title"), title=True):
+    if not title or _title_identity(title) != _title_identity(right.get("title")):
         return False
     left_due, right_due = _deadline(left.get("due_at")), _deadline(right.get("due_at"))
     if left_due is _INVALID_DEADLINE or right_due is _INVALID_DEADLINE or left_due != right_due:
