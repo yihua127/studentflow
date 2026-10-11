@@ -24,6 +24,8 @@ The results show progress and any messages that need another attempt. Tasks can 
 
 ## Tasks
 
+Repeated task mentions are combined during extraction review. **Source message** lists the related messages, and **Review notes** identifies combined mentions. Saving a recognized task again keeps the existing task; use the Tasks page to change its details. **Original supporting text** shows the retained quotations and their sources.
+
 Choose **Unfinished** or **Completed**, then select a task under **Edit task**. Update its name, deadline, total estimated study time or completed minutes. Review the details, check **I have reviewed these task details**, and select **Save changes**. Original supporting text and source references remain attached to the same task.
 
 **Confirmed** means a deadline and a positive estimate are available for planning. **Completed** means the recorded completed minutes have reached the total estimate. These describe different things. For example, an estimate of 120 minutes with 40 completed leaves 80 minutes to plan. Entering completed minutes replaces that task's cumulative total. To reopen a task or allow more study time, adjust the completed total or increase its estimate.

@@ -17,6 +17,7 @@ from studentflow.extraction import attachment_fingerprint, evidence_text, extrac
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.ingestion import parse_eml_bytes
 from studentflow.storage import Store
+from studentflow.task_dedup import merge_duplicate_tasks, merge_sources, source_evidence
 
 ZONE = ZoneInfo("Asia/Singapore")
 
@@ -144,7 +145,7 @@ def run_batch(
 
 
 def review_rows(results: list[dict], mails: dict) -> tuple[list[dict], dict]:
-    rows, sources = [], {}
+    proposals = []
     for entry in results:
         if "result" not in entry:
             continue
@@ -153,20 +154,34 @@ def review_rows(results: list[dict], mails: dict) -> tuple[list[dict], dict]:
             continue
         for index, task in enumerate(entry["result"]["tasks"]):
             row_id = f"{entry['cache_key']}:{index}:{entry['gmail_id']}"
-            due = task.get("due_at")
-            due_text = datetime.fromisoformat(due).astimezone(ZONE).strftime("%Y-%m-%d %H:%M") if due else ""
-            rows.append({
-                "Include": False, "Task": task["title"], "Deadline": due_text,
-                "Study time (min)": int(task.get("estimated_minutes") or 0),
-                "Supporting text": task.get("source_quote", ""),
-                "Source message": mail["subject"] or "Untitled message",
-                "Source file": task.get("source_filename") or "Message text",
-                "Review notes": " ".join(task.get("needs_clarification", [])), "_row_id": row_id,
+            proposals.append({
+                **task, "_row_id": row_id, "_primary_mail": mail,
+                "sources": [source_evidence(task, mail)],
             })
-            sources[row_id] = {
-                **mail, "_source_attachment_id": task.get("source_attachment_id"),
-                "_source_filename": task.get("source_filename"),
-            }
+    rows, sources = [], {}
+    for task in merge_duplicate_tasks(proposals):
+        row_id, mail = task["_row_id"], task["_primary_mail"]
+        due = task.get("due_at")
+        due_text = datetime.fromisoformat(due).astimezone(ZONE).strftime("%Y-%m-%d %H:%M") if due else ""
+        evidence = task["sources"]
+        notes = list(task.get("needs_clarification", []))
+        count = task.get("source_duplicate_count", 1)
+        if count > 1:
+            notes.insert(0, f"Duplicate mentions combined ({count}).")
+        rows.append({
+            "Include": False, "Task": task["title"], "Deadline": due_text,
+            "Study time (min)": int(task.get("estimated_minutes") or 0),
+            "Supporting text": task.get("source_quote", ""),
+            "Source message": "; ".join(dict.fromkeys(
+                item.get("mail_subject") or "Untitled message" for item in evidence)),
+            "Source file": "; ".join(dict.fromkeys(
+                item.get("source_filename") or "Message text" for item in evidence)),
+            "Review notes": " ".join(notes), "_row_id": row_id,
+        })
+        sources[row_id] = {
+            **mail, "_source_attachment_id": task.get("source_attachment_id"),
+            "_source_filename": task.get("source_filename"), "_task_sources": evidence,
+        }
     return rows, sources
 
 
@@ -210,14 +225,36 @@ def validate_selected_rows(rows: list[dict], sources: dict, reviewed: bool) -> l
         minutes = int(minutes) or None
         records.append({
             "mail_id": mail["id"], "source_name": "Gmail", "title": title,
+            "gmail_account": mail.get("gmail_account"),
             "due_at": due, "estimated_minutes": minutes,
             "status": "confirmed" if due and minutes else "pending", "source_quote": quote,
             "mail_subject": mail["subject"], "mail_sent_at": mail.get("sent_at"),
             "mail_imported_at": mail.get("imported_at"),
             "source_attachment_id": attachment_id,
             "source_filename": mail.get("_source_filename"),
+            "sources": merge_sources(
+                [source_evidence({"source_quote": quote, "source_attachment_id": attachment_id,
+                                  "source_filename": mail.get("_source_filename")}, mail)],
+                mail.get("_task_sources", []),
+            ),
         })
     return records
+
+
+def _review_version(rows: list[dict]) -> int:
+    """Invalidate row-index widget edits when grouping changes, including old sessions."""
+    signature = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
+    previous = st.session_state.get("batch_review_signature")
+    schema_changed = st.session_state.get("batch_review_schema") != "sources-v1"
+    old_keys = [key for key in st.session_state
+                if key.startswith(("batch_editor_", "batch_reviewed_"))]
+    if (schema_changed and old_keys) or (previous is not None and previous != signature):
+        for key in old_keys:
+            del st.session_state[key]
+        st.session_state.batch_review_version = st.session_state.get("batch_review_version", 0) + 1
+    st.session_state.batch_review_schema = "sources-v1"
+    st.session_state.batch_review_signature = signature
+    return st.session_state.get("batch_review_version", 0)
 
 
 def _select_messages(identifiers):
@@ -357,9 +394,12 @@ def render_batch_extraction(
     if not rows:
         return
     st.write("**Review task suggestions**")
+    total = sum(len(entry.get("result", {}).get("tasks", [])) for entry in results)
+    if total > len(rows):
+        st.caption(f"{total - len(rows)} duplicate mention(s) combined. {len(rows)} distinct task suggestion(s) to review.")
     st.caption("Check Include for each task to save. Edit names, deadlines and study time. Deadlines use Singapore time; leave unknown dates blank and unknown study time as 0.")
     st.caption("Confirmed requires a deadline and estimated study time greater than 0. Otherwise the task is saved as Needs details; you can complete or edit it on the Tasks page.")
-    version = st.session_state.get("batch_review_version", 0)
+    version = _review_version(rows)
     with st.form(f"batch_review_form_{version}"):
         edited = st.data_editor(
             rows, hide_index=True, num_rows="fixed", width="stretch",
@@ -379,15 +419,23 @@ def render_batch_extraction(
         if st.form_submit_button("Save selected tasks", type="primary"):
             try:
                 records = validate_selected_rows(edited, sources, reviewed)
-                store.save_tasks(records)
+                previous_ids = {task["id"] for task in store.tasks()}
+                identifiers = set(store.save_tasks(records))
                 try:
                     library = AttachmentLibrary(store.path)
-                    for mail_id in {record["mail_id"] for record in records}:
+                    mail_ids = {source["mail_id"] for record in records
+                                for source in record.get("sources", [])}
+                    mail_ids.update(record["mail_id"] for record in records)
+                    for mail_id in mail_ids:
                         library.save_for_message(st.session_state.mails[mail_id])
                 except Exception:
                     st.warning("Tasks were saved, but some attachments could not be kept. Save again to retry.")
-                pending = sum(record["status"] == "pending" for record in records)
-                st.success(f"Saved {len(records)} task(s)." + (f" {pending} marked as Needs details." if pending else ""))
+                pending = sum(task["status"] == "pending" for task in store.tasks()
+                              if task["id"] in identifiers)
+                kept = len(identifiers & previous_ids)
+                st.success(f"Saved {len(identifiers)} task(s)."
+                           + (f" {pending} marked as Needs details." if pending else "")
+                           + (f" {kept} already saved; existing details and progress kept. Edit these on the Tasks page." if kept else ""))
             except ValueError as exc:
                 st.error(str(exc))
             except Exception:

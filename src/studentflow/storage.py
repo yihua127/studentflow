@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
+
+from studentflow.task_dedup import merge_sources, same_task
 
 
 class Store:
@@ -39,32 +42,137 @@ class Store:
     def save_task(self, task: dict) -> str:
         return self.save_tasks([task])[0]
 
+    @staticmethod
+    def _evidence(record: dict, db) -> list[dict]:
+        """Recover legacy evidence without treating an attachment ID as a hash."""
+        sources = merge_sources([], record.get("sources", []))
+        if not sources:
+            sources = merge_sources([], [record])
+        if not db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attachment_documents'"
+        ).fetchone():
+            return sources
+        recovered = []
+        for source in sources:
+            source = dict(source)
+            attachment_id = source.get("source_attachment_id")
+            mail_id = source.get("mail_id")
+            if attachment_id and mail_id and not source.get("attachment_sha256"):
+                rows = db.execute(
+                    "SELECT payload, content FROM attachment_documents "
+                    "WHERE json_extract(payload, '$.mail_id')=? AND json_extract(payload, '$.id')=?",
+                    (mail_id, attachment_id),
+                ).fetchall()
+                account = str(source.get("gmail_account") or "").strip().casefold()
+                candidates = []
+                for payload, content in rows:
+                    metadata = json.loads(payload)
+                    saved_account = str(metadata.get("gmail_account") or "").strip().casefold()
+                    if account and saved_account != account:
+                        continue
+                    digest = hashlib.sha256(bytes(content)).hexdigest() if content else None
+                    candidates.append((saved_account, digest))
+                # Older tasks omit the account. Recover it only when all exact
+                # library matches agree on one known account and nonempty file.
+                identities = set(candidates)
+                if len(identities) == 1:
+                    saved_account, digest = identities.pop()
+                    if digest and (account or saved_account):
+                        source["attachment_sha256"] = digest
+                        source["gmail_account"] = account or saved_account
+            recovered.append(source)
+        return merge_sources([], recovered)
+
+    @staticmethod
+    def _legacy_body_scope(previous: dict, sources: list[dict], incoming: dict) -> list[dict]:
+        """Bind old Gmail body evidence only to the same raw message and quote."""
+        if previous.get("sources") or previous.get("gmail_account") or previous.get("source_name") != "Gmail":
+            return sources
+        recovered = []
+        for source in sources:
+            source = dict(source)
+            mail_id, quote = source.get("mail_id"), source.get("source_quote")
+            if (not source.get("gmail_account") and not source.get("source_attachment_id")
+                    and isinstance(mail_id, str) and re.fullmatch(r"[0-9a-f]{64}", mail_id)
+                    and isinstance(quote, str) and quote.strip()):
+                accounts = {
+                    item.get("gmail_account") for item in incoming.get("sources", [])
+                    if item.get("mail_id") == mail_id and not item.get("source_attachment_id")
+                    and item.get("source_quote") == quote
+                }
+                if len(accounts) == 1 and None not in accounts and "" not in accounts:
+                    source["gmail_account"] = accounts.pop()
+            recovered.append(source)
+        return merge_sources([], recovered)
+
+    @classmethod
+    def _same_reviewed_task(cls, incoming: dict, previous: dict, sources: list[dict]) -> bool:
+        sources = cls._legacy_body_scope(previous, sources, incoming)
+        saved = dict(previous, sources=sources)
+        if same_task(incoming, saved):
+            return True
+        # The original reviewed identity is immutable. Re-extraction should not
+        # undo a user's later title, deadline, estimate, or progress edits.
+        original = previous.get("_extraction_identity")
+        return isinstance(original, dict) and same_task(incoming, saved | {
+            key: original.get(key) for key in ("title", "due_at", "estimated_minutes")
+        })
+
     def save_tasks(self, tasks: list[dict]) -> list[str]:
-        """Save a reviewed selection atomically, updating matching source/title pairs."""
+        """Save atomically, merging proven repeat extractions without undoing edits."""
         updated_at = datetime.now(timezone.utc).isoformat()
         identifiers = []
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             existing = {row[0]: json.loads(row[1]) for row in db.execute("SELECT id, payload FROM tasks")}
             deleted = {row[0] for row in db.execute("SELECT task_id FROM deleted_task_ids")}
+            evidence_cache = {}
             for task in tasks:
                 record = dict(task)
                 title = str(record.get("title", "")).strip()
                 if not title:
                     raise ValueError("Enter a task name.")
                 record["title"] = title
+                reviewed = bool(merge_sources([], record.get("sources", [])))
+                if reviewed:
+                    record["sources"] = self._evidence(record, db)
+                    for key, value in existing.items():
+                        if key not in evidence_cache:
+                            evidence_cache[key] = self._evidence(value, db)
+                    match = next((key for key, value in existing.items()
+                                  if self._same_reviewed_task(record, value, evidence_cache[key])), None)
+                    if match is not None:
+                        previous = existing[match]
+                        matched_sources = self._legacy_body_scope(previous, evidence_cache[match], record)
+                        merged = merge_sources(matched_sources, record["sources"])
+                        if previous.get("sources") != merged or "_extraction_identity" not in previous:
+                            previous = dict(previous, sources=merged, updated_at=updated_at)
+                            previous.setdefault("_extraction_identity", {
+                                key: existing[match].get(key)
+                                for key in ("title", "due_at", "estimated_minutes")
+                            })
+                            db.execute("UPDATE tasks SET payload=? WHERE id=?",
+                                       (json.dumps(previous, ensure_ascii=False), match))
+                            existing[match] = previous
+                            evidence_cache[match] = merged
+                        identifiers.append(match)
+                        continue
                 identity = (str(record.get("mail_id", "manual")), title)
-                record_id = next((key for key, value in existing.items()
-                                  if (str(value.get("mail_id", "manual")), value["title"]) == identity), None)
+                record_id = None if reviewed else next((key for key, value in existing.items()
+                                                        if (str(value.get("mail_id", "manual")), value["title"]) == identity), None)
                 record_id = record_id or hashlib.sha256("|".join(identity).encode()).hexdigest()
                 # A renamed task retains its ID; a new proposal using its old name
                 # must not silently overwrite that user's edit.
-                while record_id in deleted or (record_id in existing and (
+                while record_id in deleted or (record_id in existing and (reviewed or (
                     str(existing[record_id].get("mail_id", "manual")), existing[record_id]["title"]
-                ) != identity):
+                ) != identity)):
                     record_id = hashlib.sha256((record_id + "|new").encode()).hexdigest()
                 previous = existing.get(record_id, {})
                 record = previous | record
+                if reviewed:
+                    record["_extraction_identity"] = {
+                        key: record.get(key) for key in ("title", "due_at", "estimated_minutes")
+                    }
                 # Re-extraction and repeated saves must not reset completed work.
                 record["completed_minutes"] = previous.get("completed_minutes", record.get("completed_minutes", 0))
                 if record["completed_minutes"] and (record.get("estimated_minutes") or 0) < record["completed_minutes"]:
@@ -76,6 +184,7 @@ class Store:
                     (record_id, json.dumps(record, ensure_ascii=False)),
                 )
                 existing[record_id] = record
+                evidence_cache.pop(record_id, None)
                 identifiers.append(record_id)
         return identifiers
 

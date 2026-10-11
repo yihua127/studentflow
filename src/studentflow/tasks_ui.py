@@ -99,13 +99,15 @@ def _render_editor(store, task):
                "Remaining time is the estimate minus completed minutes. "
                "When remaining time reaches 0, the task moves to Completed.")
     with st.expander("Original supporting text", expanded=False):
-        st.text(task.get("source_quote") or "No supporting text saved.")
-        st.caption("Source: " + (task.get("mail_subject") or "Saved message"))
-        if task.get("source_filename"):
-            source = "Attachment: " + task["source_filename"]
-            if task.get("source_page") is not None:
-                source += f" · Page {task['source_page']}"
-            st.caption(source)
+        evidence = task.get("sources") or [task]
+        for item in evidence:
+            st.text(item.get("source_quote") or "No supporting text saved.")
+            st.caption("Source: " + (item.get("mail_subject") or "Saved message"))
+            if item.get("source_filename"):
+                source = "Attachment: " + item["source_filename"]
+                if item.get("source_page") is not None:
+                    source += f" · Page {item['source_page']}"
+                st.caption(source)
 
     with st.form(prefix):
         title = st.text_input("Task name", value=task["title"], key=prefix + "_title")
