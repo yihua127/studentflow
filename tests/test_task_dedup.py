@@ -297,3 +297,76 @@ def test_legacy_ids_are_deterministic_and_source_upgrade_does_not_duplicate_evid
     assert upgraded[0]["source_key"] == hashlib.sha256(b"saved-source|m1").hexdigest()
     assert merge_sources(sources, upgraded) == upgraded
     assert merge_sources(upgraded, sources) == upgraded
+
+
+def test_forwarded_copies_of_one_cached_item_group_even_when_quote_validation_failed():
+    file = attachment()
+    digest = hashlib.sha256(file["content"]).hexdigest()
+    first = canonical_task(mail("m1", attachments=[file]), source_attachment_id="a1",
+                           source_quote="", _source_hash=digest)
+    second = canonical_task(mail("m2", subject="Fw: Syllabus", attachments=[dict(file, id="forward")]),
+                            source_attachment_id="forward", source_quote="", _source_hash=digest)
+    assert first["sources"][0]["source_hash"] == digest
+    assert same_task(first, second)
+    [merged] = merge_duplicate_tasks([first, second])
+    assert merged["source_duplicate_count"] == 2
+    assert merged["source_quote"] == ""
+    assert all(source["source_quote"] == "" for source in merged["sources"])
+    assert {source["mail_id"] for source in merged["sources"]} == {"m1", "m2"}
+
+
+def test_same_cached_body_item_with_missing_quote_groups_only_with_matching_local_hash():
+    message = mail()
+    first = canonical_task(message, source_quote="", _source_hash=body_source_hash(message))
+    second = canonical_task(message, source_quote="", _source_hash=body_source_hash(message), title="Another label")
+    assert same_task(first, second)
+    changed_message = mail(body=QUOTE + " A different body.")
+    changed = canonical_task(changed_message, source_quote="", _source_hash=body_source_hash(changed_message))
+    assert not same_task(first, changed)
+
+
+@pytest.mark.parametrize("proof", [None, "not-a-hash", "a" * 64])
+def test_missing_quote_ids_without_verified_binding_never_group(proof):
+    message = mail(attachments=[attachment()])
+    first = canonical_task(message, source_attachment_id="a1", source_quote="", _source_hash=proof)
+    assert first["sources"][0]["source_hash"] is None
+    assert not same_task(first, deepcopy(first))
+    assert len(merge_duplicate_tasks([first, deepcopy(first)])) == 2
+
+
+@pytest.mark.parametrize("different", ["item", "account", "unknown_account", "file_bytes", "course"])
+def test_missing_quote_canonical_grouping_preserves_identity_and_source_guards(different):
+    file = attachment()
+    first_mail = mail("m1", subject="MATH101 Assignment", attachments=[file])
+    second_mail = mail("m2", subject="MATH101 Assignment", attachments=[file])
+    item = "item-one"
+    if different == "item":
+        item = "other-item"
+    elif different == "account":
+        second_mail["gmail_account"] = "other@example.invalid"
+    elif different == "unknown_account":
+        second_mail["gmail_account"] = None
+    elif different == "file_bytes":
+        second_mail["attachments"] = [attachment(QUOTE + " Changed contents.")]
+    elif different == "course":
+        second_mail["subject"] = "HIST201 Assignment"
+    first = canonical_task(first_mail, source_attachment_id="a1", source_quote="",
+                           _source_hash=hashlib.sha256(file["content"]).hexdigest())
+    second = canonical_task(second_mail, item=item, source_attachment_id="a1", source_quote="",
+                            _source_hash=hashlib.sha256(second_mail["attachments"][0]["content"]).hexdigest())
+    assert not same_task(first, second)
+    assert len(merge_duplicate_tasks([first, second])) == 2
+
+
+def test_raw_model_source_hash_does_not_supply_a_local_binding():
+    message = mail()
+    task_with_raw_fields = canonical_task(message, source_quote="", source_hash=body_source_hash(message))
+    assert task_with_raw_fields["sources"][0]["source_hash"] is None
+    assert not same_task(task_with_raw_fields, deepcopy(task_with_raw_fields))
+
+
+def test_adding_bound_hash_to_existing_evidence_does_not_duplicate_it():
+    unbound = canonical_task()["sources"][0]
+    bound = canonical_task(_source_hash=body_source_hash(mail()))["sources"][0]
+    assert merge_sources([unbound], [bound]) == [bound]
+    assert merge_sources([bound], [unbound]) == [bound]

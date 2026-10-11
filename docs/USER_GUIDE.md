@@ -4,6 +4,8 @@
 
 Connect Gmail once on your device. StudentFlow restores the saved connection when you reopen the window or restart the app, and shows **Gmail connected**. Select **Switch account** to use another account or **Disconnect Gmail** to sign out of this device.
 
+On Windows, double-click the **StudentFlow** desktop shortcut to open the app. After a code update, the shortcut loads the updated version automatically. If the extraction workflow has changed, select your messages and choose **Extract tasks** to refresh the suggestions.
+
 In **Task extraction**, refresh the inbox and choose one or more messages. Select **View selected messages** to read their text and load attachments locally. After consent, AI extraction uses the selected messages' subjects, text, dates and readable attachment text, along with relevant saved task details when checking for duplicates.
 
 If the connection is temporarily unavailable, select **Retry connection**. If Google requires renewed authorization, select **Reconnect Gmail** to sign in again.

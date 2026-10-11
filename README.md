@@ -31,7 +31,7 @@ Open http://localhost:8501. On Windows, an existing installation can also be sta
 
 Run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-desktop-shortcut.ps1` from the project folder once. Then double-click **StudentFlow** on the desktop. The launcher starts the app in the background and opens the default browser, reusing an existing StudentFlow instance when available.
 
-After updating the application, restart StudentFlow to load the new code. The saved Gmail sign-in is restored on startup.
+The desktop shortcut checks for application updates and restarts the local app when its code changes. The saved Gmail sign-in is restored on startup. To restart explicitly, run `powershell -NoProfile -ExecutionPolicy Bypass -File .\launch.ps1 -Restart`.
 
 Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to create a desktop OAuth client and save its configuration as `credentials/gmail_client.json`. Each person signs in on their own computer.
 

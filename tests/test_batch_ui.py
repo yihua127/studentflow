@@ -217,6 +217,28 @@ render_batch_extraction(headers, Path('fake-client'), Path('fake-token'),
 '''
 
 
+def test_obsolete_browser_results_require_explicit_refresh_without_model_calls(tmp_path, monkeypatch):
+    monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
+    calls = setup_fakes(monkeypatch)
+    app = AppTest.from_string(APP_SOURCE)
+    app.session_state["batch_results"] = [{"result": {"tasks": [{"title": "Old suggestion"}]}}]
+    app.session_state["batch_results_version"] = "source-pipeline-v1"
+    app.session_state["batch_selected"] = ["a"]
+    app.run(timeout=30)
+    assert not app.exception
+    assert calls == []
+    assert len(app.dataframe) == 0
+    assert any("Task extraction has been updated" in item.value for item in app.info)
+    assert app.multiselect(key="batch_selected").value == ["a"]
+    assert Store(tmp_path / "tasks.sqlite3").tasks() == []
+    # A new user-authorized extraction replaces obsolete data and restores review.
+    app.checkbox(key="batch_consent").check().run()
+    app.button(key="batch_extract").click().run(timeout=30)
+    assert not app.exception
+    assert len(app.dataframe[0].value) == 1
+    assert app.session_state["batch_results_version"] == batch_ui.PIPELINE_VERSION
+
+
 def test_ui_requires_explicit_selection_consent_and_bulk_review(tmp_path, monkeypatch):
     monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
     calls = setup_fakes(monkeypatch)

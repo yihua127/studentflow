@@ -101,6 +101,35 @@ def _aware_iso(value: Any) -> str | None:
         return None
 
 
+def _source_quote(quote: Any, source: str) -> str:
+    """Restore an exact source span when only whitespace layout differs.
+
+    Every normalized character retains its original start/end offsets. Words,
+    punctuation and case remain unchanged; this does not accept paraphrases.
+    """
+    if not isinstance(quote, str) or not quote.strip():
+        return ""
+    if quote in source:
+        return quote
+    target = " ".join(quote.split())
+    characters, spans = [], []
+    for index, character in enumerate(source):
+        if character.isspace():
+            if characters and characters[-1] == " ":
+                spans[-1] = (spans[-1][0], index + 1)
+            elif characters:
+                characters.append(" ")
+                spans.append((index, index + 1))
+        else:
+            characters.append(character)
+            spans.append((index, index + 1))
+    normalized = "".join(characters)
+    position = normalized.find(target)
+    if position < 0:
+        return ""
+    return source[spans[position][0]:spans[position + len(target) - 1][1]]
+
+
 def validate_extraction(payload: Any, body: str, documents: list[dict] | None = None) -> dict:
     """Validate an untrusted structured response without importing any SDK.
 
@@ -115,6 +144,8 @@ def validate_extraction(payload: Any, body: str, documents: list[dict] | None = 
     if len(raw_tasks) > MAX_TASKS:
         warnings.append(f"More than {MAX_TASKS} tasks were returned. Review the first {MAX_TASKS} tasks below.")
     tasks = []
+    readable_documents = [document for document in (documents or []) if document.get("text", "").strip()]
+    sole_document = readable_documents[0] if not body.strip() and len(readable_documents) == 1 else None
     for index, raw in enumerate(raw_tasks[:MAX_TASKS], start=1):
         if not isinstance(raw, dict):
             warnings.append(f"Item {index} is not a valid task and was skipped.")
@@ -145,9 +176,14 @@ def validate_extraction(payload: Any, body: str, documents: list[dict] | None = 
             notes.append("The estimated effort is unknown. Enter it before scheduling.")
         quote = raw.get("source_quote")
         attachment_id = raw.get("source_attachment_id")
+        # A document-only call has exactly one possible evidence source. Bind it
+        # locally instead of relying on a model to repeat an opaque source ID.
+        if sole_document is not None:
+            attachment_id = sole_document["id"]
         document = next((doc for doc in (documents or []) if doc["id"] == attachment_id), None)
         source = body if attachment_id is None else (document or {}).get("text", "")
-        valid_quote = isinstance(quote, str) and bool(quote.strip()) and quote in source
+        quote = _source_quote(quote, source)
+        valid_quote = bool(quote)
         if not valid_quote:
             quote = ""
             notes.append("The supporting quote was not found in its source message or attachment and was removed. Check that this task is required.")

@@ -224,6 +224,7 @@ render_batch_extraction(headers, Path('fake-client'), Path('fake-token'),
     app.session_state["candidates"] = {}
     app.session_state["gmail_profile"] = {"email_address": ACCOUNT}
     app.session_state["batch_results"] = results
+    app.session_state["batch_results_version"] = batch_ui.PIPELINE_VERSION
     app.session_state["batch_review_version"] = 4
     app.session_state["batch_editor_4"] = {"edited_rows": {9: {"Include": True}}, "added_rows": [], "deleted_rows": []}
     app.session_state["batch_reviewed_4"] = True

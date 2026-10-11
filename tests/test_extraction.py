@@ -171,3 +171,65 @@ def test_combined_source_limit_is_explicit_and_preserves_exact_evidence(monkeypa
     result = extract_tasks("Body", "Document", None, "fake", "mock", [docx_attachment("A" * 60)])
     assert len(calls[-1]["attachments"][0]["text"]) == 36
     assert any("combined text limit" in warning for warning in result["warnings"])
+
+
+def test_wrapped_pdf_quote_restores_original_whitespace_and_page():
+    original = "Research  outline\t20%\n12\u00a0October 2026, 17:00"
+    source = "Course assessments\n" + original + "\nOther information"
+    docs = [{"id": "pdf", "filename": "syllabus.pdf", "text": source,
+             "pages": [{"page": 2, "text": source}]}]
+    payload = proposal(source_quote="Research outline 20% 12 October 2026, 17:00", source_attachment_id="pdf")
+    item = validate_extraction(payload, "", docs)["tasks"][0]
+    assert item["source_quote"] == original
+    assert item["source_quote"] in source
+    assert item["source_page"] == 2
+    assert item["confidence"] == 0.8
+
+
+def test_body_quote_restores_newlines_without_changing_words():
+    body = "Please\nsubmit the report by 16 October,\t17:00. Allow 90 minutes."
+    item = validate_extraction(proposal(source_quote=BODY), body)["tasks"][0]
+    assert item["source_quote"] == body
+    assert item["source_attachment_id"] is None
+
+
+@pytest.mark.parametrize("quote", [
+    "Please submit the essay by 16 October, 17:00. Allow 90 minutes.",
+    "Please submit the report by 17 October, 17:00. Allow 90 minutes.",
+    "Please submit the report by 16 October; 17:00. Allow 90 minutes.",
+    "please submit the report by 16 October, 17:00. Allow 90 minutes.",
+])
+def test_whitespace_tolerance_never_accepts_different_words_dates_punctuation_or_case(quote):
+    item = validate_extraction(proposal(source_quote=quote), BODY)["tasks"][0]
+    assert item["source_quote"] == ""
+    assert item["confidence"] == 0
+
+
+@pytest.mark.parametrize("source_id", [None, "incorrect-id", "syllabus.pdf"])
+def test_single_document_only_analysis_binds_its_real_source_locally(source_id):
+    docs = [{"id": "real-document-id", "filename": "syllabus.pdf", "text": BODY, "pages": []}]
+    item = validate_extraction(proposal(source_attachment_id=source_id), "", docs)["tasks"][0]
+    assert item["source_attachment_id"] == "real-document-id"
+    assert item["source_filename"] == "syllabus.pdf"
+    assert item["source_quote"] == BODY
+
+
+@pytest.mark.parametrize("body,documents,source_id", [
+    ("See attached.", [{"id": "a", "filename": "a.pdf", "text": BODY, "pages": []}], None),
+    ("See attached.", [{"id": "a", "filename": "a.pdf", "text": BODY, "pages": []}], "wrong"),
+    ("", [{"id": "a", "filename": "a.pdf", "text": BODY, "pages": []},
+          {"id": "b", "filename": "b.pdf", "text": "Different instructions", "pages": []}], None),
+    ("", [{"id": "a", "filename": "a.pdf", "text": BODY, "pages": []},
+          {"id": "b", "filename": "b.pdf", "text": "Different instructions", "pages": []}], "b"),
+])
+def test_single_document_binding_does_not_weaken_mixed_source_validation(body, documents, source_id):
+    item = validate_extraction(proposal(source_attachment_id=source_id), body, documents)["tasks"][0]
+    assert item["source_quote"] == ""
+    assert item["confidence"] == 0
+
+
+def test_single_source_binding_still_rejects_fabricated_quote():
+    docs = [{"id": "a", "filename": "a.pdf", "text": BODY, "pages": []}]
+    item = validate_extraction(proposal(source_attachment_id=None, source_quote="Invented instruction."), "", docs)["tasks"][0]
+    assert item["source_quote"] == ""
+    assert item["confidence"] == 0

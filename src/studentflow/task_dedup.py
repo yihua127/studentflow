@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 SOURCE_FIELDS = (
     "mail_id", "gmail_account", "mail_subject", "mail_sent_at",
     "source_attachment_id", "source_filename", "source_quote", "attachment_sha256",
+    "source_hash",
     "source_key", "source_item_id",
 )
 _COURSE_CODE = re.compile(r"\b([A-Za-z]{2,8})[ -]?(\d{3,5}[A-Za-z]?)\b")
@@ -81,6 +82,8 @@ def _clean_source(source: dict) -> dict:
     result["gmail_account"] = _text(result["gmail_account"]).strip().casefold() or None
     digest = _text(result["attachment_sha256"]).strip().lower()
     result["attachment_sha256"] = digest if re.fullmatch(r"[0-9a-f]{64}", digest) else None
+    source_hash = _text(result["source_hash"])
+    result["source_hash"] = source_hash if re.fullmatch(r"[0-9a-f]{64}", source_hash) else None
     for field in ("source_key", "source_item_id"):
         value = _text(result[field])
         result[field] = value if re.fullmatch(r"[0-9a-f]{64}", value) else None
@@ -114,12 +117,16 @@ def source_evidence(task: dict, mail: dict) -> dict:
     expected_hash = task.get("_source_hash")
     actual_hash = digest if attachment_id is not None else body_source_hash(mail)
     matching_source = expected_hash is None or expected_hash == actual_hash
+    bound_hash = (actual_hash if isinstance(expected_hash, str)
+                  and re.fullmatch(r"[0-9a-f]{64}", expected_hash)
+                  and expected_hash == actual_hash else None)
     return _clean_source({
         "mail_id": mail.get("id"), "gmail_account": mail.get("gmail_account"),
         "mail_subject": mail.get("subject"), "mail_sent_at": mail.get("sent_at"),
         "source_attachment_id": attachment_id,
         "source_filename": attachment.get("filename") if attachment else None,
         "source_quote": quote, "attachment_sha256": digest,
+        "source_hash": bound_hash,
         "source_key": task.get("_source_key") if matching_source else None,
         "source_item_id": task.get("_source_item_id") if matching_source else None,
     })
@@ -150,11 +157,18 @@ def merge_sources(left: list[dict], right: list[dict]) -> list[dict]:
                 # Adding canonical IDs to otherwise identical old evidence must
                 # not leave two copies of the same source in saved records.
                 duplicate = next((item for item in result
-                                  if all(item[key] == clean[key] for key in SOURCE_FIELDS[:-2])
-                                  and (not item["source_item_id"] or not clean["source_item_id"])), None)
+                                  if all(item[key] == clean[key] for key in SOURCE_FIELDS
+                                         if key not in {"source_hash", "source_key", "source_item_id"})
+                                  and (not item["source_hash"] or not clean["source_hash"]
+                                       or item["source_hash"] == clean["source_hash"])
+                                  and (not item["source_item_id"] or not clean["source_item_id"]
+                                       or (item["source_item_id"] == clean["source_item_id"]
+                                           and item["source_key"] == clean["source_key"]))), None)
                 if duplicate is not None:
                     if not duplicate["source_item_id"] and clean["source_item_id"]:
                         duplicate.update(source_key=clean["source_key"], source_item_id=clean["source_item_id"])
+                    if not duplicate["source_hash"] and clean["source_hash"]:
+                        duplicate["source_hash"] = clean["source_hash"]
                     seen.add(identity)
                     continue
                 seen.add(identity)
@@ -176,12 +190,30 @@ def legacy_source_ids(record: dict, sources: list[dict]) -> list[dict]:
     return cleaned
 
 
-def _sources(task: dict) -> list[dict]:
+def _all_sources(task: dict) -> list[dict]:
     sources = merge_sources(task.get("sources", []), [])
     # Legacy saved tasks keep their original provenance on the task itself.
     if not sources:
         sources = [_clean_source(task)]
-    return [source for source in sources if _text(source.get("source_quote")).strip()]
+    return sources
+
+
+def _sources(task: dict) -> list[dict]:
+    return [source for source in _all_sources(task) if _text(source.get("source_quote")).strip()]
+
+
+def _canonical_sources(task: dict) -> list[dict]:
+    """Include quote-less copies only with a locally verified source binding.
+
+    This groups repeated appearances of one cached suggestion. It does not make
+    an unsupported quotation valid or authorize saving/semantic matching.
+    """
+    return [source for source in _all_sources(task)
+            if source.get("source_item_id") and source.get("source_key")
+            and (_text(source.get("source_quote")).strip()
+                 or (source.get("source_hash")
+                     and (not source.get("source_attachment_id")
+                          or source["source_hash"] == source.get("attachment_sha256"))))]
 
 
 def _deadline(value):
@@ -260,8 +292,10 @@ def _shared_source_item(left: dict, right: dict) -> bool:
     return any(a.get("source_item_id") and a["source_item_id"] == b.get("source_item_id")
                and a.get("source_key") == b.get("source_key")
                and a.get("gmail_account") == b.get("gmail_account")
+               and (not a.get("source_hash") or not b.get("source_hash")
+                    or a["source_hash"] == b["source_hash"])
                and _evidence_related(a, b, missing_due=False)
-               for a in _sources(left) for b in _sources(right))
+               for a in _canonical_sources(left) for b in _canonical_sources(right))
 
 
 def same_task(left: dict, right: dict) -> bool:
@@ -273,8 +307,8 @@ def same_task(left: dict, right: dict) -> bool:
     """
     if _shared_source_item(left, right):
         return True
-    left_ids = {source["source_item_id"] for source in _sources(left) if source.get("source_item_id")}
-    right_ids = {source["source_item_id"] for source in _sources(right) if source.get("source_item_id")}
+    left_ids = {source["source_item_id"] for source in _canonical_sources(left)}
+    right_ids = {source["source_item_id"] for source in _canonical_sources(right)}
     # A new canonical item requires an explicit semantic alias to an old one.
     # Labels, dates, or quotations cannot override a distinct item identity.
     if left_ids and right_ids:

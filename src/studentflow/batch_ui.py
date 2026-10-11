@@ -22,7 +22,7 @@ from studentflow.extraction import (
 from studentflow.extraction_cache import ExtractionCache
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.ingestion import parse_eml_bytes
-from studentflow.source_extraction import analyze_sources
+from studentflow.source_extraction import PIPELINE_VERSION, analyze_sources
 from studentflow.storage import Store
 from studentflow.task_dedup import merge_duplicate_tasks, merge_sources, source_evidence
 from studentflow.task_reconciliation import reconcile_tasks
@@ -38,7 +38,7 @@ def clear_batch_state():
 
 
 def extraction_key(account: str, mail: dict, model: str) -> str:
-    payload = ["source-pipeline-v1", SYSTEM_PROMPT, account.casefold(),
+    payload = [PIPELINE_VERSION, SYSTEM_PROMPT, account.casefold(),
                mail["body"], mail["subject"], mail.get("sent_at"), model,
                attachment_fingerprint(mail.get("attachments", []))]
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
@@ -400,7 +400,7 @@ def render_batch_extraction(
                 reconciliation_cache=st.session_state.setdefault("batch_reconciliation_cache", {}),
             )
             st.session_state.batch_results = results
-            st.session_state.batch_results_version = "source-pipeline-v1"
+            st.session_state.batch_results_version = PIPELINE_VERSION
             try:
                 library = AttachmentLibrary(store.path)
                 for entry in results:
@@ -425,9 +425,9 @@ def render_batch_extraction(
     results = st.session_state.get("batch_results", [])
     if not results:
         return
-    if any(not task.get("_source_item_id") for entry in results
-           for task in entry.get("result", {}).get("tasks", [])):
-        st.info("Select Extract tasks to refresh these suggestions with duplicate checking.")
+    if st.session_state.get("batch_results_version") != PIPELINE_VERSION:
+        st.info("Task extraction has been updated. Select your messages and choose Extract tasks to refresh the suggestions.")
+        return
     warnings = []
     for entry in results:
         name = by_id.get(entry["gmail_id"], {}).get("subject") or "Message"
