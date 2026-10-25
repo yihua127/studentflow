@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import tempfile
+from pathlib import Path
 
 import dotenv
 import streamlit as st
@@ -127,7 +127,7 @@ def render_ai_settings(root: Path) -> None:
         with st.spinner("Checking AI connection..."):
             try:
                 valid = check_ai_connection(api_key, model)
-            except Exception:
+            except Exception:  # noqa: BLE001 - Never expose provider request data or credentials.
                 # Provider exceptions can contain request data or credentials.
                 st.error(
                     "The AI connection could not be verified. Check your API key, "

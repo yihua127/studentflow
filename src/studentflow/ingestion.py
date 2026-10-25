@@ -165,6 +165,7 @@ def parse_eml_bytes(raw: bytes, source_name: str) -> dict:
         "source_name": source_name,
         "subject": str(message.get("Subject", "(No subject)"))[:1000],
         "sender": str(message.get("From", ""))[:1000],
+        "reply_to": str(message.get("Reply-To", ""))[:1000],
         "sent_at": sent_at,
         "body": body,
         "warnings": list(dict.fromkeys(warnings)),

@@ -1,8 +1,8 @@
 """Product interface journeys with isolated records and a fake Gmail service."""
 
+import re
 from email.message import EmailMessage
 from pathlib import Path
-import re
 
 import dotenv
 import pytest
@@ -10,7 +10,6 @@ from streamlit.testing.v1 import AppTest
 
 from studentflow import batch_ui, gmail
 from studentflow.storage import Store
-
 
 APP = Path(__file__).resolve().parents[1] / "app.py"
 
@@ -62,14 +61,14 @@ def test_empty_interface_is_english_and_gmail_first(tmp_path, monkeypatch):
     monkeypatch.setattr(gmail, "connect", unexpected_connection)
     monkeypatch.setattr(batch_ui, "connect", unexpected_connection)
     app = checked(AppTest.from_file(str(APP)))
-    assert [tab.label for tab in app.tabs] == ["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments", "Settings"]
+    assert [tab.label for tab in app.tabs] == ["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments", "Settings", "Assistant"]
     assert not app.get("file_uploader")
     assert find(app.button, "Connect Gmail").disabled
     assert find(app.button, "Refresh inbox").disabled
     assert not any(box.label == "Messages per batch" for box in app.selectbox)
     assert not any(button.label == "View selected messages" for button in app.button)
-    assert not any(button.label == "Extract tasks" for button in app.button)
-    assert find(app.expander, "Task extraction")
+    assert not any(button.label == "Analyze selected messages" for button in app.button)
+    assert find(app.expander, "Message analysis")
     assert not any(box.label == "Choose a message" for box in app.selectbox)
     assert not any(button.label == "Open message" for button in app.button)
     assert not any(item.label == "Batch task extraction" for item in app.expander)
@@ -143,8 +142,8 @@ def test_mail_consent_review_task_save_and_disconnect(tmp_path, monkeypatch):
     assert find(app.text_area, "Message").value.strip() == original_body.strip()
     assert app.checkbox(key="batch_consent").value is False
     assert not any(item.label.startswith("Allow this message") for item in app.checkbox)
-    assert len([button for button in app.button if button.label == "Extract tasks"]) == 1
-    assert find(app.button, "Extract tasks").disabled
+    assert len([button for button in app.button if button.label == "Analyze selected messages"]) == 1
+    assert find(app.button, "Analyze selected messages").disabled
     assert len(app.session_state["mails"]) == 1
 
     # A real task must still be reviewed and supported by its source message.
@@ -331,13 +330,21 @@ def test_unified_selection_extracts_one_or_many_and_saves_only_after_review(tmp_
         }], "warnings": []}
 
     monkeypatch.setattr(batch_ui, "extract_tasks", fake_extract)
+    def coordinate(tasks, events, *_args, **_kwargs):
+        return {"status": "completed", "task_result": tasks(), "event_result": events(),
+                "events": [], "usage": {}, "warnings": []}
+
+    monkeypatch.setattr(batch_ui, "run_inbox_agents", coordinate)
+    monkeypatch.setattr(batch_ui, "analyze_fixed_event_messages", lambda *_args, **_kwargs: {
+        "events": [], "results": [], "warnings": [], "complete": True,
+    })
     find(app.button, "Refresh inbox").click()
     checked(app)
     app.multiselect(key="batch_selected").set_value(selected)
     checked(app)
     assert extraction_calls == []
     assert not any(call[0] == "fetch" for call in state["calls"])
-    assert find(app.button, "Extract tasks").disabled
+    assert find(app.button, "Analyze selected messages").disabled
 
     if len(selected) > 1:
         # The same selection can be viewed without model consent or a paid call.
@@ -350,12 +357,12 @@ def test_unified_selection_extracts_one_or_many_and_saves_only_after_review(tmp_
 
     app.checkbox(key="batch_consent").check()
     checked(app)
-    find(app.button, "Extract tasks").click()
+    find(app.button, "Analyze selected messages").click()
     checked(app)
     assert sorted(extraction_calls) == sorted(selected)
     assert [call[1] for call in state["calls"] if call[0] == "fetch"] == selected
     assert len(app.session_state["batch_results"]) == len(selected)
-    assert len([button for button in app.button if button.label == "Extract tasks"]) == 1
+    assert len([button for button in app.button if button.label == "Analyze selected messages"]) == 1
     assert not any(item.label == "Extract tasks with AI" for item in app.expander)
     store = Store(tmp_path / "records" / "studentflow.sqlite3")
     assert store.tasks() == []

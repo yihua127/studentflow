@@ -14,17 +14,14 @@ import unicodedata
 from copy import deepcopy
 from datetime import UTC, datetime
 
+from studentflow.course_codes import course_codes
+
 SOURCE_FIELDS = (
     "mail_id", "gmail_account", "mail_subject", "mail_sent_at",
     "source_attachment_id", "source_filename", "source_quote", "attachment_sha256",
     "source_hash",
     "source_key", "source_item_id",
 )
-_COURSE_CODE = re.compile(r"\b([A-Za-z]{2,8})[ -]?(\d{3,5}[A-Za-z]?)\b")
-_NON_COURSE_PREFIXES = {
-    "january", "february", "march", "april", "may", "june", "july", "august",
-    "september", "october", "november", "december", "year", "page",
-}
 _INVALID_DEADLINE = object()
 # A bare academic label has ONE action family, never a wildcard. This prevents
 # an omitted verb from bridging, for example, preparing and submitting slides
@@ -235,8 +232,7 @@ def _minutes(value):
 
 
 def _course_codes(quote: str) -> set[str]:
-    return {(prefix + number).casefold() for prefix, number in _COURSE_CODE.findall(quote)
-            if prefix.casefold() not in _NON_COURSE_PREFIXES}
+    return course_codes(quote)
 
 
 def _compatible(left: dict, right: dict) -> bool:

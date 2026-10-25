@@ -28,7 +28,8 @@ $parseErrors = $null
 $tree = [System.Management.Automation.Language.Parser]::ParseFile({literal(LAUNCHER)}, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count -ne 0) {{ throw ($parseErrors | Out-String) }}
 $wanted = @('Get-StudentFlowCodeFingerprint', 'Test-StudentFlowLaunchVersion',
-            'Write-StudentFlowLaunchVersion', 'Stop-VerifiedStudentFlowListener', 'Assert-StudentFlowListener')
+            'Write-StudentFlowLaunchVersion', 'Stop-VerifiedStudentFlowListener', 'Assert-StudentFlowListener',
+            'Format-StudentFlowLaunchError')
 $functions = $tree.FindAll({{ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }}, $true)
 foreach ($function in $functions) {{
     if ($wanted -contains $function.Name) {{ . ([scriptblock]::Create($function.Extent.Text)) }}
@@ -190,3 +191,91 @@ catch { $blocked = $true }
 @{stopped=@($script:stopped); blocked=$blocked} | ConvertTo-Json -Compress
 """)
     assert result == {"stopped": [1234], "blocked": True}
+
+
+@pytest.mark.parametrize("native_code", [577, 1260, 4551])
+def test_policy_error_in_nested_exception_identifies_python_and_keeps_protections(native_code):
+    result = run_helpers(rf"""
+$native = [System.ComponentModel.Win32Exception]::new({native_code}, 'Synthetic localized failure')
+$wrapped = [System.InvalidOperationException]::new('Synthetic outer failure', $native)
+$wrapped.Data['environment'] = 'PRIVATE-ENVIRONMENT-NOT-FOR-DISPLAY'
+$failure = [System.Management.Automation.ErrorRecord]::new(
+    $wrapped, 'SyntheticStartFailure', [System.Management.Automation.ErrorCategory]::PermissionDenied,
+    'PRIVATE-INVOCATION-NOT-FOR-DISPLAY')
+$message = Format-StudentFlowLaunchError -Failure $failure -Stage 'Starting Python' -Target 'C:\synthetic\.venv\Scripts\python.exe'
+@{{message=$message}} | ConvertTo-Json -Compress
+""")
+    message = result["message"]
+    assert "Stage: Starting Python" in message
+    assert r"Target: C:\synthetic\.venv\Scripts\python.exe" in message
+    assert "HRESULT: 0x" in message and f"Windows error: {native_code}" in message
+    assert "official, digitally signed Python" in message
+    assert "trusted by this device" in message
+    assert "Keep Windows security protections enabled." in message
+    assert "PRIVATE" not in message
+    if native_code == 577:
+        assert "could not verify the digital signature" in message
+    else:
+        assert "Windows application control blocked" in message
+
+
+def test_policy_hresult_without_win32_exception_is_decoded():
+    hresult = 0x800711C7 - 2**32
+    result = run_helpers(rf"""
+$exception = [System.Runtime.InteropServices.ExternalException]::new('Synthetic failure', {hresult})
+$failure = [System.Management.Automation.ErrorRecord]::new(
+    $exception, 'SyntheticFailure', [System.Management.Automation.ErrorCategory]::PermissionDenied, $null)
+$message = Format-StudentFlowLaunchError -Failure $failure -Stage 'Starting Python' -Target 'C:\synthetic\python.exe'
+@{{message=$message}} | ConvertTo-Json -Compress
+""")
+    assert "HRESULT: 0x800711C7" in result["message"]
+    assert "Windows error: 4551" in result["message"]
+    assert "official, digitally signed Python" in result["message"]
+
+
+def test_browser_policy_error_does_not_recommend_replacing_python():
+    result = run_helpers("""
+$exception = [System.ComponentModel.Win32Exception]::new(1260, 'Synthetic browser block')
+$failure = [System.Management.Automation.ErrorRecord]::new(
+    $exception, 'SyntheticFailure', [System.Management.Automation.ErrorCategory]::PermissionDenied, $null)
+$message = Format-StudentFlowLaunchError -Failure $failure -Stage 'Opening browser' -Target 'http://127.0.0.1:8501'
+@{message=$message} | ConvertTo-Json -Compress
+""")
+    message = result["message"]
+    assert "Stage: Opening browser" in message
+    assert "Target: http://127.0.0.1:8501" in message
+    assert "local app is ready" in message and "approved browser" in message
+    assert "Python" not in message
+    assert "Keep Windows security protections enabled." in message
+
+
+def test_other_native_error_preserves_reason_without_claiming_policy_block():
+    result = run_helpers(r"""
+$exception = [System.ComponentModel.Win32Exception]::new(2, 'Synthetic file was not found.')
+$exception.Data['token'] = 'PRIVATE-TOKEN-NOT-FOR-DISPLAY'
+$failure = [System.Management.Automation.ErrorRecord]::new(
+    $exception, 'SyntheticFailure', [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+    'PRIVATE-COMMAND-LINE-NOT-FOR-DISPLAY')
+$message = Format-StudentFlowLaunchError -Failure $failure -Stage 'Starting Python' -Target 'C:\synthetic\python.exe'
+@{message=$message} | ConvertTo-Json -Compress
+""")
+    message = result["message"]
+    assert "Windows error: 2" in message
+    assert "Details: Synthetic file was not found." in message
+    assert "application control blocked" not in message
+    assert "digitally signed Python" not in message
+    assert "PRIVATE" not in message
+
+
+def test_launcher_validation_error_keeps_actionable_reason():
+    result = run_helpers("""
+try { throw 'Port 8501 is being used by another application. Close that application or use another port.' }
+catch { $failure = $_ }
+$message = Format-StudentFlowLaunchError -Failure $failure -Stage 'Checking local service' -Target 'http://127.0.0.1:8501'
+@{message=$message} | ConvertTo-Json -Compress
+""")
+    message = result["message"]
+    assert "Stage: Checking local service" in message
+    assert "Port 8501 is being used by another application" in message
+    assert "HRESULT: 0x" in message
+    assert "Windows error:" not in message

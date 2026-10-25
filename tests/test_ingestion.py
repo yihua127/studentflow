@@ -48,6 +48,19 @@ def test_alternative_body_not_duplicated():
     assert parsed["body"] == "Plain evidence"
 
 
+def test_reply_to_is_preserved_for_verified_reply_recipient():
+    from studentflow.assistant_context import selectable_sources
+
+    message = email_with_body()
+    message["Reply-To"] = "Course Teacher <reply@example.test>"
+    parsed = parse_eml_bytes(message.as_bytes(), "reply.eml")
+    parsed.update(gmail_account="student@example.test", gmail_id="remote123")
+    source = selectable_sources({parsed["id"]: parsed}, [], [])[0]
+    assert source["reply_to"] == "Course Teacher <reply@example.test>"
+    assert source["sender"] == "teacher@example.test"
+    assert source["gmail_id"] == "remote123"
+
+
 def test_html_scripts_are_not_body_evidence():
     message = email_with_body()
     message.set_content(

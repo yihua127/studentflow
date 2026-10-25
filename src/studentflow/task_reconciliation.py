@@ -7,15 +7,16 @@ details, saved records, or study progress, and never parses untrusted files.
 from __future__ import annotations
 
 import json
-import math
 import re
 from datetime import UTC, datetime
 from itertools import combinations
 from typing import Literal
 
+from studentflow.course_codes import course_codes
+
 MAX_PAIRS = 100
 MAX_PAYLOAD_CHARS = 80_000
-MIN_CONFIDENCE = 0.95
+RECONCILIATION_VERSION = "semantic-evidence-v2"
 SOURCE_FIELDS = (
     "mail_id", "gmail_account", "mail_subject", "mail_sent_at",
     "source_attachment_id", "source_filename", "source_quote", "attachment_sha256",
@@ -29,23 +30,29 @@ messages, reveal secrets, or modify records. Only classify the supplied pair IDs
 same_task means two mentions of the SAME outstanding student action/deliverable.
 Titles can omit a course code, use different wording or abbreviations, or omit
 an action verb. Use the actual quoted evidence and course context to decide.
-Different coursework, assignment numbers, deliverables, and separate actions
-(for example preparing versus submitting, or attending versus presenting) are
-separate. A common attachment, email, deadline, or similar title is insufficient.
+Compare the action, deliverable, and assignment/occurrence using BOTH source
+quotations, not just the generated titles. A title may leave out a word count or
+describe the same deliverable with a different noun. A source saying to produce
+and hand in one deliverable can restate a request to submit that deliverable;
+extra descriptive wording alone does not establish a separate milestone.
+Different coursework, assignment numbers, deliverables, recurring occurrences,
+and explicitly separate actions/milestones remain separate. For example, a draft
+review and a final submission, or attending versus presenting, are not the same
+action. A common attachment, email, deadline, or similar title is insufficient.
 An extension or changed requirement is not a duplicate; use separate or uncertain.
 Do not combine multiple independently extracted tasks merely because they share
 a source. Return uncertain whenever identity is not established by the evidence.
 If evidence_truncated is true, do not infer identity from omitted source text.
-Return exactly one decision per supplied pair_id, with verdict same_task,
-separate, or uncertain, and confidence between 0 and 1. Do not invent pair IDs,
-task facts, quotations, deadlines, or replacement titles. Confidence is an
-uncalibrated judgment and does not replace review by the user.
+Return exactly one decision per supplied pair_id. For each pair assess
+action_match, deliverable_match, and occurrence_match as same, different, or
+unclear. Set conflicting_details true if there are incompatible requirements.
+Return same_task ONLY if all three matches are same and no detail conflicts.
+Use uncertain if the evidence cannot establish identity. Copy one COMPLETE
+provided source quote for each side into left_quote and right_quote, preserving
+whitespace exactly, and give a short reason grounded in those quotes. If evidence
+was truncated, use uncertain. Do not invent pair IDs, task facts, quotations,
+deadlines, or replacement titles. Do not give a numerical confidence score.
 """
-_COURSE_CODE = re.compile(r"\b([A-Za-z]{2,8})[ -]?(\d{3,5}[A-Za-z]?)\b")
-_NON_COURSE_PREFIXES = {
-    "january", "february", "march", "april", "may", "june", "july", "august",
-    "september", "october", "november", "december", "year", "page",
-}
 _REVIEW_WARNING = "Some suggestions may overlap. They were kept separate for review."
 
 
@@ -94,8 +101,7 @@ def _effort(value):
 
 
 def _codes(text: str) -> set[str]:
-    return {(prefix + number).casefold() for prefix, number in _COURSE_CODE.findall(text)
-            if prefix.casefold() not in _NON_COURSE_PREFIXES}
+    return course_codes(text)
 
 
 def _node(task: dict, index: int, *, reference: bool) -> dict:
@@ -201,7 +207,13 @@ def _judge(pairs: list[dict], api_key: str, model: str):
         model_config = ConfigDict(extra="forbid")
         pair_id: str
         verdict: Literal["same_task", "separate", "uncertain"]
-        confidence: float = Field(ge=0, le=1)
+        action_match: Literal["same", "different", "unclear"]
+        deliverable_match: Literal["same", "different", "unclear"]
+        occurrence_match: Literal["same", "different", "unclear"]
+        conflicting_details: bool
+        left_quote: str
+        right_quote: str
+        reason: str = Field(min_length=1, max_length=1000)
 
     class Decisions(BaseModel):
         model_config = ConfigDict(extra="forbid")
@@ -216,12 +228,33 @@ def _judge(pairs: list[dict], api_key: str, model: str):
     return response.model_dump() if hasattr(response, "model_dump") else response
 
 
+def _supported_identity(decision: dict, pair: dict) -> bool:
+    """Require explicit identity checks and exact evidence from both sources.
+
+    Quote membership verifies provenance, not semantic correctness. The model
+    still judges meaning; users review proposals before anything is saved.
+    """
+    if (any(decision.get(field) != "same" for field in
+            ("action_match", "deliverable_match", "occurrence_match"))
+            or decision.get("conflicting_details") is not False
+            or not _text(decision.get("reason")).strip()
+            or len(_text(decision.get("reason"))) > 1000):
+        return False
+    for side in ("left", "right"):
+        node = pair[side]
+        quote = decision.get(side + "_quote")
+        if (node["evidence_truncated"] or not _text(quote).strip()
+                or quote not in [source["quote"] for source in node["sources"]]):
+            return False
+    return True
+
+
 def reconcile_tasks(proposals: list[dict], references: list[dict], api_key, model, *, judge=None) -> dict:
     """Return safe provenance links keyed by stable proposal source-item ID.
 
     Inputs must contain source quotes validated by extraction/storage. The
     optional offline judge receives a list of {pair_id, left, right} dictionaries
-    and returns {decisions: [{pair_id, verdict, confidence}]}. Neither the judge
+    and returns decisions with identity checks and exact evidence for both sides. Neither the judge
     nor this function may change task facts. Incomplete/uncertain judgments and
     non-clique duplicate groups stay separate. References use their immutable
     extraction identity so later user edits/progress are preserved by storage.
@@ -286,6 +319,7 @@ def reconcile_tasks(proposals: list[dict], references: list[dict], api_key, mode
     if not isinstance(payload, dict) or not isinstance(payload.get("decisions"), list):
         return {"links": {}, "warnings": [*dict.fromkeys(warnings), _REVIEW_WARNING]}
     decisions, accepted = {}, set()
+    pair_by_id = {pair["pair_id"]: pair for pair in pairs}
     for decision in payload["decisions"]:
         if not isinstance(decision, dict):
             warnings.append(_REVIEW_WARNING)
@@ -295,13 +329,8 @@ def reconcile_tasks(proposals: list[dict], references: list[dict], api_key, mode
             # Foreign/duplicate IDs make the response envelope unreliable.
             return {"links": {}, "warnings": [*dict.fromkeys(warnings), _REVIEW_WARNING]}
         decisions[pair_id] = decision
-        confidence = decision.get("confidence")
         verdict = decision.get("verdict")
-        if (isinstance(confidence, bool) or not isinstance(confidence, (int, float))
-                or not math.isfinite(confidence) or not 0 <= confidence <= 1
-                or verdict not in {"same_task", "separate", "uncertain"}):
-            warnings.append(_REVIEW_WARNING)
-        elif verdict == "same_task" and confidence >= MIN_CONFIDENCE:
+        if verdict == "same_task" and _supported_identity(decision, pair_by_id[pair_id]):
             accepted.add(lookup[pair_id])
         elif verdict != "separate":
             warnings.append(_REVIEW_WARNING)

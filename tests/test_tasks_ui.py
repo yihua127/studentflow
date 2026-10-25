@@ -6,6 +6,7 @@ import io
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from studentflow.effort_review import build_effort_review
 from studentflow.storage import Store
 from studentflow.tasks_ui import tasks_csv
 
@@ -87,6 +88,57 @@ def test_editor_tracks_partial_completion_and_moves_both_directions(workspace):
     task, = workspace.tasks()
     assert task["id"] and not task["is_completed"] and task["remaining_minutes"] == 30
     assert app.radio(key="tasks_category").value == "Unfinished"
+
+
+def test_editor_shows_effort_review_and_preserves_advice_and_progress_after_adjustment(workspace):
+    advice = {
+        "estimated_minutes": 120,
+        "suggested_minutes": 90,
+        "estimate_reason": "Allow time for reading and a short draft.",
+        "assumptions": ["The learner already knows the topic."],
+    }
+    review = build_effort_review(advice, 90, model="test-estimation-model")
+    source = {
+        "mail_id": "message-one", "gmail_account": "learner@example.invalid",
+        "mail_subject": "Report assignment", "source_quote": "Please prepare the report.",
+    }
+    task_id = save_task(
+        workspace, status="confirmed", due_at="2026-10-16T17:00:00+08:00",
+        estimated_minutes=90, completed_minutes=30, effort_review=review, sources=[source],
+    )
+    before, = workspace.tasks()
+    app = checked(AppTest.from_string(APP_SOURCE))
+    history = field(app.expander, "Study-time estimate history")
+    assert history.dataframe[0].value.iloc[0].to_dict() == {
+        "Source-stated minutes": 120, "AI suggested minutes": 90,
+        "Confirmed minutes": 90, "Review decision": "accepted",
+    }
+    assert {item.value for item in history.text} == {
+        advice["estimate_reason"], advice["assumptions"][0],
+    }
+    assert field(app.number_input, "Completed study time (minutes)").value == 30
+
+    field(app.number_input, "Estimated study time (minutes)").set_value(135)
+    save_changes(app)
+
+    after, = workspace.tasks()
+    assert after["id"] == task_id
+    assert after["estimated_minutes"] == 135
+    assert after["completed_minutes"] == 30 and after["remaining_minutes"] == 105
+    assert after["sources"] == before["sources"]
+    assert after["source_quote"] == before["source_quote"]
+    assert after["effort_review"]["confirmed_minutes"] == 135
+    assert after["effort_review"]["decision"] == "adjusted"
+    for key in ("stated_minutes", "suggested_minutes", "estimate_reason", "assumptions", "model"):
+        assert after["effort_review"][key] == before["effort_review"][key]
+    history = field(app.expander, "Study-time estimate history")
+    assert history.dataframe[0].value.iloc[0].to_dict() == {
+        "Source-stated minutes": 120, "AI suggested minutes": 90,
+        "Confirmed minutes": 135, "Review decision": "adjusted",
+    }
+    assert field(app.number_input, "Completed study time (minutes)").value == 30
+    assert app.dataframe[0].value.iloc[0]["Remaining (min)"] == 105
+    assert field(app.checkbox, "I have reviewed these task details.").value is False
 
 
 def test_unknown_estimate_stays_unfinished_and_can_save_missing_deadline(workspace):

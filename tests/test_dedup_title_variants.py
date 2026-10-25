@@ -1,6 +1,8 @@
 """Minor extraction-title variants must not duplicate a sourced assignment."""
 
+import hashlib
 import io
+import json
 from copy import deepcopy
 from itertools import permutations
 
@@ -193,6 +195,8 @@ def test_cached_title_variants_render_five_rows_without_mail_or_model_calls(tmp_
 
     monkeypatch.setattr(batch_ui, "connect", forbidden)
     monkeypatch.setattr(batch_ui, "extract_tasks", forbidden)
+    monkeypatch.setattr(batch_ui, "run_inbox_agents", forbidden)
+    monkeypatch.setattr(batch_ui, "analyze_fixed_event_messages", forbidden)
     objects = ["research outline", "source evaluation quiz", "individual research essay", "presentation slides", "research presentation"]
     actions = ["Submit", "Attend", "Submit", "Submit", "Attend"]
     quotes = [f"DSX1002 {item} is due on the specified date." for item in objects]
@@ -223,8 +227,21 @@ render_batch_extraction(headers, Path('fake-client'), Path('fake-token'),
     app.session_state["mails"] = mails
     app.session_state["candidates"] = {}
     app.session_state["gmail_profile"] = {"email_address": ACCOUNT}
+    selected = [mail["gmail_id"] for mail in mails.values()]
+    app.session_state["batch_selected"] = selected
     app.session_state["batch_results"] = results
+    fixed_result = {"events": [], "warnings": [], "results": [], "complete": True}
+    app.session_state["batch_fixed_result"] = fixed_result
+    app.session_state["batch_analysis_run"] = {
+        "status": "completed", "task_result": {"results": results, "effort": {}, "status": "completed"},
+        "event_result": fixed_result, "events": [], "usage": {}, "warnings": [], "cached": True,
+    }
+    app.session_state["batch_analysis_signature"] = hashlib.sha256(json.dumps([
+        batch_ui.UNIFIED_VERSION, batch_ui.PIPELINE_VERSION, batch_ui.RECONCILIATION_VERSION,
+        ACCOUNT, selected, "model-test", True,
+    ]).encode()).hexdigest()
     app.session_state["batch_results_version"] = batch_ui.PIPELINE_VERSION
+    app.session_state["batch_reconciliation_version"] = batch_ui.RECONCILIATION_VERSION
     app.session_state["batch_review_version"] = 4
     app.session_state["batch_editor_4"] = {"edited_rows": {9: {"Include": True}}, "added_rows": [], "deleted_rows": []}
     app.session_state["batch_reviewed_4"] = True

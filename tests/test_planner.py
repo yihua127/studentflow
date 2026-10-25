@@ -136,7 +136,8 @@ def test_back_to_back_same_location_and_overlapping_busy_events():
 
 def test_now_clips_slots_and_expired_task_stays_unscheduled():
     plan = checked([task(30, "expired", "09:00"), task(60, "valid")], settings={"now": stamp("10:15")})
-    assert plan["blocks"][0]["start"] == stamp("10:15")
+    assert plan["blocks"][0]["start"] == stamp("11:00")
+    assert sum(block["minutes"] for block in plan["blocks"]) == 60
     assert plan["unscheduled"][0]["task_id"] == "expired"
 
 

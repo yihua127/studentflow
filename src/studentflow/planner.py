@@ -12,6 +12,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 Interval = tuple[datetime, datetime]
+PLANNING_POLICY_VERSION = "whole-hour-preference-v1"
 DEFAULT_MEALS = [
     {"start": "08:00", "end": "08:30"},
     {"start": "11:30", "end": "12:00"},
@@ -55,9 +56,10 @@ def _union(intervals: list[Interval]) -> list[Interval]:
 
 def _subtract(intervals: list[Interval], exclusions: list[Interval]) -> list[Interval]:
     result: list[Interval] = []
+    merged_exclusions = _union(exclusions)
     for start, end in intervals:
         cursor = start
-        for blocked_start, blocked_end in _union(exclusions):
+        for blocked_start, blocked_end in merged_exclusions:
             if blocked_end <= cursor:
                 continue
             if blocked_start >= end:
@@ -274,7 +276,9 @@ def propose_schedule(
     Only explicitly confirmed tasks with a deadline and positive integer duration
     can enter a plan. ``now`` is optional so historic fixtures remain reproducible.
     ``buffer_minutes`` is a soft preference reported as a warning, never a hidden
-    earlier deadline. The caller remains responsible for user confirmation.
+    earlier deadline. Whole-hour starts are preferred only when doing so does not
+    reduce any task's scheduled work compared with the earliest-start proposal.
+    The caller remains responsible for user confirmation.
     """
     result: dict = {"blocks": [], "unscheduled": [], "warnings": []}
     duplicates = _duplicate_ids(tasks)
@@ -305,9 +309,63 @@ def propose_schedule(
             )
         else:
             candidates.append((due, task_id, title, minutes))
+    candidates.sort()
+    baseline = _allocate(candidates, ctx, set())
+    rounded_tasks = {item[1] for item in candidates}
+    rounded = _allocate(candidates, ctx, rounded_tasks)
+    if _keeps_scheduled_work(rounded, baseline):
+        chosen = rounded
+    else:
+        # A tight deadline/window should not stop unrelated, roomier tasks from
+        # starting on the hour. Trial each task against the whole remaining plan:
+        # rounding an early task must not crowd out work with a later deadline.
+        chosen, rounded_tasks = baseline, set()
+        for _due, task_id, _title, _minutes in candidates:
+            starts = [_instant(block["start"]) for block in chosen["blocks"]
+                      if block["task_id"] == task_id]
+            if all(_whole_hour_at_or_after(start, ctx.zone) == start for start in starts):
+                # This task already satisfies the preference (or has no block).
+                # Enabling it changes no allocation, so no full trial is needed.
+                rounded_tasks.add(task_id)
+                continue
+            trial = _allocate(candidates, ctx, rounded_tasks | {task_id})
+            if _keeps_scheduled_work(trial, chosen):
+                chosen = trial
+                rounded_tasks.add(task_id)
+    result["blocks"] = chosen["blocks"]
+    result["unscheduled"].extend(chosen["unscheduled"])
+    result["warnings"].extend(chosen["warnings"])
+    return result
+
+
+def _whole_hour_at_or_after(instant: datetime, zone: ZoneInfo) -> datetime:
+    """Round forward on the local clock, including offsets that are not whole hours."""
+    while True:
+        local = instant.astimezone(zone)
+        if local.minute == local.second == local.microsecond == 0:
+            return instant
+        instant += timedelta(minutes=60 - local.minute,
+                             seconds=-local.second, microseconds=-local.microsecond)
+        # Recheck the local clock after a daylight-saving offset transition.
+
+
+def _keeps_scheduled_work(proposal: dict, previous: dict) -> bool:
+    def totals(plan):
+        amounts = Counter()
+        for block in plan["blocks"]:
+            amounts[block["task_id"]] += block["minutes"]
+        return amounts
+
+    proposed, existing = totals(proposal), totals(previous)
+    return all(proposed[task_id] >= minutes for task_id, minutes in existing.items())
+
+
+def _allocate(candidates: list[tuple], ctx: _Context, rounded_tasks: set[str]) -> dict:
+    """Run the same EDF allocator with hour starts enabled for selected tasks."""
+    result: dict = {"blocks": [], "unscheduled": [], "warnings": []}
     allocated: list[Interval] = []
     daily_used: dict = defaultdict(int, ctx.completed_by_day)
-    for due, task_id, title, minutes in sorted(candidates):
+    for due, task_id, title, minutes in candidates:
         remaining = minutes
         padding = timedelta(minutes=ctx.break_minutes)
         free = _subtract(ctx.free, [(start - padding, end + padding) for start, end in allocated])
@@ -318,6 +376,10 @@ def propose_schedule(
             if next_start is not None:
                 start = max(start, next_start)
             while start < end and remaining:
+                if task_id in rounded_tasks:
+                    start = _whole_hour_at_or_after(start, ctx.zone)
+                    if start >= end:
+                        break
                 day = start.astimezone(ctx.zone).date()
                 capacity = int((end - start).total_seconds() // 60)
                 amount = min(

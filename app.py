@@ -12,15 +12,16 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from studentflow.ai_settings import DEFAULT_MODEL, read_ai_settings, render_ai_settings
+from studentflow.assistant_ui import render_assistant
 from studentflow.attachment_library import AttachmentLibrary
 from studentflow.attachment_ui import render_attachments
-from studentflow.extraction import evidence_text, message_documents
 from studentflow.batch_ui import clear_batch_state, render_batch_extraction
+from studentflow.daily_review import render_daily_review
+from studentflow.extraction import evidence_text, message_documents
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.planning_ui import render_planner
-from studentflow.daily_review import render_daily_review
-from studentflow.tasks_ui import render_tasks
 from studentflow.storage import Store
+from studentflow.tasks_ui import render_tasks
 
 ROOT = Path(__file__).resolve().parent
 ZONE = ZoneInfo("Asia/Singapore")
@@ -134,7 +135,7 @@ def render_message_review(store):
                 st.success("Task saved." if complete else "Task saved as Needs details. Add a deadline and estimated time before planning.")
                 try:
                     AttachmentLibrary(store.path).save_for_message(mail)
-                except Exception:
+                except Exception:  # noqa: BLE001 - The saved task survives any attachment failure.
                     st.warning("The task was saved, but its attachments could not be saved. Open Attachments and try saving them again.")
             except ValueError as exc:
                 st.error(str(exc))
@@ -252,10 +253,12 @@ def render_inbox(store, data_dir, api_key, model):
         connection_error = st.session_state.get("gmail_connection_error")
         if connection_error:
             st.warning(connection_error)
-        if saved_sign_in and not profile and not st.session_state.get("gmail_auth_required"):
-            if st.button("Retry connection", disabled=not credential_path.is_file()):
-                restore_gmail_connection(credential_path, token_path)
-                st.rerun()
+        if (
+            saved_sign_in and not profile and not st.session_state.get("gmail_auth_required")
+            and st.button("Retry connection", disabled=not credential_path.is_file())
+        ):
+            restore_gmail_connection(credential_path, token_path)
+            st.rerun()
         connect_label = "Switch account" if profile else "Reconnect Gmail" if saved_sign_in else "Connect Gmail"
         if st.button(connect_label, disabled=not credential_path.is_file() or not consent):
             reset_inbox(clear_opened=True)
@@ -264,9 +267,11 @@ def render_inbox(store, data_dir, api_key, model):
             st.session_state.pop("gmail_auth_required", None)
             st.session_state.gmail_restore_attempted = True
             try:
-                with st.spinner("Complete Google sign-in in the browser, then return here..."):
-                    with closing(connect(credential_path, token_path, interactive=True)) as mailbox:
-                        st.session_state.gmail_profile = mailbox.profile()
+                with (
+                    st.spinner("Complete Google sign-in in the browser, then return here..."),
+                    closing(connect(credential_path, token_path, interactive=True)) as mailbox,
+                ):
+                    st.session_state.gmail_profile = mailbox.profile()
                 st.rerun()
             except GmailError as exc:
                 st.session_state.gmail_connection_error = str(exc)
@@ -288,21 +293,23 @@ def render_inbox(store, data_dir, api_key, model):
     if notice:
         st.error(notice)
     ready = bool(st.session_state.get("gmail_profile") and consent and token_path.is_file())
-    with st.expander("Task extraction", expanded=True):
+    with st.expander("Message analysis", expanded=True):
         if st.button("Refresh inbox", disabled=not ready):
             try:
                 with st.spinner("Loading inbox..."):
                     load_inbox_page(credential_path, token_path, INBOX_PAGE_SIZE)
             except GmailError as exc:
                 show_gmail_error(exc)
-        if st.session_state.get("gmail_next_page_token"):
-            if st.button("Load more", disabled=not ready):
-                try:
-                    with st.spinner("Loading more messages..."):
-                        load_inbox_page(credential_path, token_path, INBOX_PAGE_SIZE, append=True)
-                    st.rerun()
-                except GmailError as exc:
-                    show_gmail_error(exc)
+        if (
+            st.session_state.get("gmail_next_page_token")
+            and st.button("Load more", disabled=not ready)
+        ):
+            try:
+                with st.spinner("Loading more messages..."):
+                    load_inbox_page(credential_path, token_path, INBOX_PAGE_SIZE, append=True)
+                st.rerun()
+            except GmailError as exc:
+                show_gmail_error(exc)
         headers = st.session_state.get("gmail_headers", [])
         if "gmail_headers" in st.session_state:
             st.caption(f"{len(headers)} message(s) loaded.")
@@ -337,18 +344,24 @@ def main():
         api_key, model = "", DEFAULT_MODEL
         st.error(str(exc))
     render_daily_review(store, data_dir)
-    tabs = st.tabs(["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments", "Settings"])
+    tab_labels = ["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments", "Settings", "Assistant"]
+    requested_tab = st.session_state.pop("sf_app_pending_tab", None)
+    if requested_tab in tab_labels:
+        st.session_state["sf_app_tab"] = requested_tab
+    tabs = st.tabs(tab_labels, key="sf_app_tab", on_change="rerun")
     with tabs[0]:
         render_inbox(store, data_dir, api_key, model)
     tasks = store.tasks()
     with tabs[1]:
         render_tasks(store)
     with tabs[2]:
-        render_planner(tasks, store, data_dir)
+        render_planner(tasks, store, data_dir, root=ROOT)
     with tabs[3]:
         render_attachments(store, available_messages())
     with tabs[4]:
         render_ai_settings(ROOT)
+    with tabs[5]:
+        render_assistant(store, data_dir, ROOT, available_messages(), api_key, model)
 
 
 if __name__ == "__main__":

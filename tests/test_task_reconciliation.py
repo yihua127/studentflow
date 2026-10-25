@@ -39,7 +39,12 @@ def change_source(task, **changes):
 
 
 def same_judge(pairs):
-    return {"decisions": [{"pair_id": pair["pair_id"], "verdict": "same_task", "confidence": 0.98}
+    return {"decisions": [{"pair_id": pair["pair_id"], "verdict": "same_task",
+                          "action_match": "same", "deliverable_match": "same",
+                          "occurrence_match": "same", "conflicting_details": False,
+                          "left_quote": pair["left"]["sources"][0]["quote"],
+                          "right_quote": pair["right"]["sources"][0]["quote"],
+                          "reason": "Both quoted instructions identify the same assignment and action."}
                           for pair in pairs]}
 
 
@@ -177,12 +182,63 @@ def test_equal_deadline_instants_allow_timezone_differences():
     ("uncertain", 1.0), ("same_task", 0.94), ("same_task", True),
     ("same_task", float("nan")), ("same_task", 1.2), ("invalid", 0.99),
 ])
-def test_uncertain_low_confidence_or_invalid_decisions_stay_separate(verdict, confidence):
+def test_legacy_confidence_only_decisions_cannot_establish_identity(verdict, confidence):
     def judge(pairs):
         return {"decisions": [{"pair_id": pairs[0]["pair_id"], "verdict": verdict, "confidence": confidence}]}
 
     result = reconcile_tasks([proposal("a"), proposal("b")], [], "", "", judge=judge)
     assert result["links"] == {}
+    assert result["warnings"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("action_match", "different"), ("deliverable_match", "unclear"),
+    ("occurrence_match", "different"), ("conflicting_details", True),
+    ("conflicting_details", 0), ("left_quote", "A fabricated instruction"),
+    ("right_quote", "Submit"), ("right_quote", ""), ("reason", " "),
+    ("reason", "x" * 1001), ("verdict", "uncertain"),
+])
+def test_incomplete_conflicting_or_unverified_identity_stays_separate(field, value):
+    def judge(pairs):
+        result = same_judge(pairs)
+        result["decisions"][0][field] = value
+        return result
+
+    result = reconcile_tasks([proposal("a"), proposal("b")], [], "", "", judge=judge)
+    assert result["links"] == {}
+    assert result["warnings"]
+
+
+def test_paraphrased_deliverable_is_linked_by_verified_evidence_without_confidence_score():
+    left = change_source(proposal("body", mail_id="one-mail",
+        title="Submit 200-word interpretation of campus survey results", estimated_minutes=50),
+        source_attachment_id=None, attachment_sha256=None,
+        source_quote="Submit a 200-word interpretation of the campus survey results.")
+    right = change_source(proposal("file", mail_id="one-mail",
+        title="Submit written interpretation for campus survey", estimated_minutes=50),
+        source_quote="Write a 200-word explanation of the findings from the campus survey and submit it.")
+    result = reconcile_tasks([left, right], [], "", "", judge=same_judge)
+    assert set(result["links"]) == {"body", "file"}
+    assert not result["warnings"]
+
+
+def test_swapped_evidence_cannot_justify_a_merge():
+    left = change_source(proposal("a"), source_quote="Submit the initial research outline.")
+    right = change_source(proposal("b"), source_quote="Upload the final presentation.")
+
+    def judge(pairs):
+        result = same_judge(pairs)
+        decision = result["decisions"][0]
+        decision["left_quote"], decision["right_quote"] = decision["right_quote"], decision["left_quote"]
+        return result
+
+    assert not reconcile_tasks([left, right], [], "", "", judge=judge)["links"]
+
+
+def test_truncated_evidence_never_authorizes_a_merge():
+    left = change_source(proposal("a"), source_quote="Submit the outline. " * 100)
+    result = reconcile_tasks([left, proposal("b")], [], "", "", judge=same_judge)
+    assert not result["links"]
     assert result["warnings"]
 
 
@@ -368,7 +424,12 @@ def test_default_judge_uses_strict_schema_and_untrusted_data_prompt(monkeypatch)
 
         def with_structured_output(self, schema, **options):
             assert options == {"method": "json_schema", "strict": True}
-            assert schema.model_json_schema()["additionalProperties"] is False
+            schema_json = schema.model_json_schema()
+            assert schema_json["additionalProperties"] is False
+            decision_fields = schema_json["$defs"]["Decision"]["properties"]
+            assert "confidence" not in decision_fields
+            assert {"left_quote", "right_quote", "action_match", "deliverable_match",
+                    "occurrence_match", "conflicting_details"} <= decision_fields.keys()
             return self
 
         def invoke(self, messages):

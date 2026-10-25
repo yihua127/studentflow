@@ -60,7 +60,12 @@ def setup_sources(monkeypatch):
 
     def judge(pairs):
         judgments.append(deepcopy(pairs))
-        return {"decisions": [{"pair_id": pair["pair_id"], "verdict": "same_task", "confidence": 0.99}
+        return {"decisions": [{"pair_id": pair["pair_id"], "verdict": "same_task",
+                              "action_match": "same", "deliverable_match": "same",
+                              "occurrence_match": "same", "conflicting_details": False,
+                              "left_quote": pair["left"]["sources"][0]["quote"],
+                              "right_quote": pair["right"]["sources"][0]["quote"],
+                              "reason": "The repeated source identifies the same deliverable."}
                               for pair in pairs]}
 
     def reconciler(proposals, references, api_key, model):
@@ -140,6 +145,22 @@ def test_reanalyzing_one_copy_refreshes_all_copies_in_next_batch(tmp_path, monke
 def test_real_review_screen_uses_one_document_analysis_and_saves_five_tasks(tmp_path, monkeypatch):
     mails, calls, judgments, _reconciler = setup_sources(monkeypatch)
     monkeypatch.setenv("SOURCE_PIPELINE_TEST_DB", str(tmp_path / "tasks.sqlite3"))
+
+    # This test owns the real task/source/dedup/review path. SDK delegation and
+    # fixed-event classification have separate tests; neither may call a provider here.
+    def analyze_events(selected_mails, account, api_key, model, cache, *, reanalyze=False):
+        assert account == ACCOUNT
+        return {"events": [], "warnings": [], "complete": True, "results": [
+            {"mail_id": mail["id"], "events": [], "warnings": [], "cached": False}
+            for mail in selected_mails
+        ]}
+
+    def run_agents(task_action, event_action, api_key, model):
+        return {"status": "completed", "task_result": task_action(),
+                "event_result": event_action(), "events": [], "usage": {}, "warnings": []}
+
+    monkeypatch.setattr(batch_ui, "analyze_fixed_event_messages", analyze_events)
+    monkeypatch.setattr(batch_ui, "run_inbox_agents", run_agents)
     app = AppTest.from_string('''
 import os
 from pathlib import Path

@@ -58,6 +58,16 @@ def setup_fakes(monkeypatch, *, fetch_failure=None, model_failure=None, profile=
 
     monkeypatch.setattr(batch_ui, "connect", lambda *_args, **_kwargs: Mailbox())
     monkeypatch.setattr(batch_ui, "extract_tasks", extract)
+    # Exercise the real source/review path without contacting orchestration models.
+    def coordinate(tasks, events, *_args, **_kwargs):
+        task_result, event_result = tasks(), events()
+        return {"status": "completed", "task_result": task_result,
+                "event_result": event_result, "events": [], "usage": {}, "warnings": []}
+
+    monkeypatch.setattr(batch_ui, "run_inbox_agents", coordinate)
+    monkeypatch.setattr(batch_ui, "analyze_fixed_event_messages", lambda *_args, **_kwargs: {
+        "events": [], "results": [], "warnings": [], "complete": True,
+    })
     return calls
 
 
@@ -217,18 +227,22 @@ render_batch_extraction(headers, Path('fake-client'), Path('fake-token'),
 '''
 
 
-def test_obsolete_browser_results_require_explicit_refresh_without_model_calls(tmp_path, monkeypatch):
+@pytest.mark.parametrize("outdated_stage", ["extraction", "reconciliation"])
+def test_obsolete_browser_results_require_explicit_refresh_without_model_calls(tmp_path, monkeypatch, outdated_stage):
     monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
     calls = setup_fakes(monkeypatch)
     app = AppTest.from_string(APP_SOURCE)
     app.session_state["batch_results"] = [{"result": {"tasks": [{"title": "Old suggestion"}]}}]
-    app.session_state["batch_results_version"] = "source-pipeline-v1"
+    app.session_state["batch_results_version"] = (
+        "source-pipeline-v1" if outdated_stage == "extraction" else batch_ui.PIPELINE_VERSION)
+    app.session_state["batch_reconciliation_version"] = "semantic-review-v1"
     app.session_state["batch_selected"] = ["a"]
     app.run(timeout=30)
     assert not app.exception
     assert calls == []
     assert len(app.dataframe) == 0
-    assert any("Task extraction has been updated" in item.value for item in app.info)
+    expected = "Task extraction has been updated" if outdated_stage == "extraction" else "Duplicate checking has been updated"
+    assert any(expected in item.value for item in app.info)
     assert app.multiselect(key="batch_selected").value == ["a"]
     assert Store(tmp_path / "tasks.sqlite3").tasks() == []
     # A new user-authorized extraction replaces obsolete data and restores review.
@@ -237,6 +251,7 @@ def test_obsolete_browser_results_require_explicit_refresh_without_model_calls(t
     assert not app.exception
     assert len(app.dataframe[0].value) == 1
     assert app.session_state["batch_results_version"] == batch_ui.PIPELINE_VERSION
+    assert app.session_state["batch_reconciliation_version"] == batch_ui.RECONCILIATION_VERSION
 
 
 def test_ui_requires_explicit_selection_consent_and_bulk_review(tmp_path, monkeypatch):
@@ -262,15 +277,15 @@ def test_ui_requires_explicit_selection_consent_and_bulk_review(tmp_path, monkey
     checked()
     assert calls == []
     assert app.multiselect(key="batch_selected").value == []
-    assert button("Extract tasks").disabled
+    assert button("Analyze selected messages").disabled
     button("Select all loaded").click()
     checked()
     assert calls == []
     assert app.multiselect(key="batch_selected").value == ["a", "b"]
     app.checkbox(key="batch_consent").check()
     checked()
-    assert not button("Extract tasks").disabled
-    button("Extract tasks").click()
+    assert not button("Analyze selected messages").disabled
+    button("Analyze selected messages").click()
     checked()
     assert len([call for call in calls if call[0] == "extract"]) == 2
     assert [caption.value for caption in app.caption].count("Review the suggestions before saving.") == 1
@@ -450,4 +465,80 @@ def test_batch_ui_keeps_original_attachments_when_candidates_are_extracted(tmp_p
     assert len(library.documents()) == 1
     assert library.content(library.documents()[0]["library_id"]) == mail["attachments"][0]["content"]
     assert Store(tmp_path / "tasks.sqlite3").tasks() == []
+
+
+def test_ui_estimates_unknown_time_and_saves_only_human_reviewed_value(tmp_path, monkeypatch):
+    monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
+    setup_fakes(monkeypatch)
+    calls = []
+
+    def extract(body, subject, sent_at, api_key, model):
+        result = fake_extraction(body, subject, sent_at, api_key, model)
+        result["tasks"][0]["estimated_minutes"] = None
+        return result
+
+    def estimate(tasks, api_key, model):
+        calls.append([task["id"] for task in tasks])
+        return {"estimates": {task["id"]: {"suggested_minutes": 60,
+                "estimate_reason": "Draft and check the report.",
+                "assumptions": ["Research is complete."]} for task in tasks}, "warnings": []}
+
+    monkeypatch.setattr(batch_ui, "extract_tasks", extract)
+    monkeypatch.setattr(batch_ui, "estimate_task_efforts", estimate)
+    app = AppTest.from_string(APP_SOURCE).run(timeout=30)
+    assert not app.exception and calls == []
+    app.multiselect(key="batch_selected").set_value(["a"]).run()
+    app.checkbox(key="batch_consent").check().run()
+    app.button(key="batch_extract").click().run(timeout=30)
+    assert not app.exception and len(calls) == 1
+    frame = app.dataframe[0].value
+    assert frame.iloc[0]["AI suggestion (min)"] == 60
+    assert frame.iloc[0]["Study time (min)"] == 60
+    assert "Research is complete" in frame.iloc[0]["Estimate basis"]
+    assert Store(tmp_path / "tasks.sqlite3").tasks() == []
+    version = app.session_state["batch_review_version"]
+    next(item for item in app.button if item.label == "Save selected tasks").click().run()
+    assert Store(tmp_path / "tasks.sqlite3").tasks() == []
+    assert any("reviewed" in item.value for item in app.error)
+    app.session_state[f"batch_editor_{version}"] = {
+        "edited_rows": {0: {"Include": True, "Study time (min)": 105}},
+        "added_rows": [], "deleted_rows": [],
+    }
+    app.checkbox(key=f"batch_reviewed_{version}").check()
+    next(item for item in app.button if item.label == "Save selected tasks").click().run()
+    assert not app.exception
+    assert not app.error, [item.value for item in app.error]
+    task, = Store(tmp_path / "tasks.sqlite3").tasks()
+    assert task["estimated_minutes"] == 105
+    assert task["effort_review"]["suggested_minutes"] == 60
+    assert task["effort_review"]["confirmed_minutes"] == 105
+    assert task["effort_review"]["decision"] == "adjusted"
+    app.run()
+    assert len(calls) == 1  # Rerenders and saving never trigger a paid estimation call.
+
+
+def test_turning_off_effort_suggestions_requires_new_consent_and_skips_estimator(tmp_path, monkeypatch):
+    monkeypatch.setenv("BATCH_TEST_RECORDS", str(tmp_path))
+    setup_fakes(monkeypatch)
+
+    def extract(body, subject, sent_at, api_key, model):
+        result = fake_extraction(body, subject, sent_at, api_key, model)
+        result["tasks"][0]["estimated_minutes"] = None
+        return result
+
+    def forbidden(*args):
+        raise AssertionError("Estimation was disabled.")
+
+    monkeypatch.setattr(batch_ui, "extract_tasks", extract)
+    monkeypatch.setattr(batch_ui, "estimate_task_efforts", forbidden)
+    app = AppTest.from_string(APP_SOURCE).run(timeout=30)
+    app.multiselect(key="batch_selected").set_value(["a"]).run()
+    app.checkbox(key="batch_consent").check().run()
+    app.checkbox(key="batch_suggest_effort").uncheck().run()
+    assert not app.checkbox(key="batch_consent").value
+    app.checkbox(key="batch_consent").check().run()
+    app.button(key="batch_extract").click().run(timeout=30)
+    assert not app.exception
+    assert app.dataframe[0].value.iloc[0]["Study time (min)"] == 0
+    assert not app.session_state["batch_effort_warnings"]
 

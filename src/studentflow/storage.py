@@ -6,9 +6,10 @@ import hashlib
 import json
 import re
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
+from studentflow.effort_review import build_effort_review, validate_effort_review
 from studentflow.task_dedup import legacy_source_ids, merge_sources, same_task
 
 
@@ -21,6 +22,7 @@ class Store:
             db.execute("CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS daily_reviews (day TEXT PRIMARY KEY, payload TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS deleted_task_ids (task_id TEXT PRIMARY KEY)")
+            db.execute("CREATE TABLE IF NOT EXISTS fixed_events (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
 
     def connect(self):
         return sqlite3.connect(self.path, timeout=15)
@@ -120,7 +122,7 @@ class Store:
 
     def save_tasks(self, tasks: list[dict]) -> list[str]:
         """Save atomically, merging proven repeat extractions without undoing edits."""
-        updated_at = datetime.now(timezone.utc).isoformat()
+        updated_at = datetime.now(UTC).isoformat()
         identifiers = []
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -133,6 +135,11 @@ class Store:
                 if not title:
                     raise ValueError("Enter a task name.")
                 record["title"] = title
+                if "effort_review" in record:
+                    record["effort_review"] = validate_effort_review(
+                        record["effort_review"], record.get("estimated_minutes")
+                    )
+                    record["estimated_minutes"] = record["effort_review"]["confirmed_minutes"]
                 reviewed = bool(merge_sources([], record.get("sources", [])))
                 if reviewed:
                     record["sources"] = self._evidence(record, db)
@@ -169,6 +176,15 @@ class Store:
                     record_id = hashlib.sha256((record_id + "|new").encode()).hexdigest()
                 previous = existing.get(record_id, {})
                 record = previous | record
+                if previous and "effort_review" in record:
+                    # Re-saving an extraction is not another human effort review.
+                    # Existing estimates may only change through an explicit edit.
+                    record["estimated_minutes"] = previous.get("estimated_minutes")
+                    if "effort_review" in previous:
+                        record["effort_review"] = previous["effort_review"]
+                    else:
+                        record.pop("effort_review", None)
+                    record["status"] = previous.get("status", "pending")
                 if reviewed:
                     record["_extraction_identity"] = {
                         key: record.get(key) for key in ("title", "due_at", "estimated_minutes")
@@ -243,9 +259,124 @@ class Store:
                     raise ValueError("Another task from this message has this name. Choose a different name.")
             record.update(estimated_minutes=estimate, completed_minutes=completed, due_at=due,
                           status="confirmed" if due and estimate else "pending",
-                          updated_at=datetime.now(timezone.utc).isoformat())
+                          updated_at=datetime.now(UTC).isoformat())
+            if ("estimated_minutes" in changes and "effort_review" in previous
+                    and estimate != previous.get("estimated_minutes")):
+                review = previous["effort_review"]
+                record["effort_review"] = build_effort_review(
+                    review, estimate, model=review.get("model", "")
+                )
             record = self._task(record)
             db.execute("UPDATE tasks SET payload=? WHERE id=?", (json.dumps(record, ensure_ascii=False), task_id))
+        return record
+
+    def list_fixed_events(self, account: str | None = None) -> list[dict]:
+        """Read local human-confirmed appointments without calendar side effects."""
+        from studentflow.fixed_events import normalize_account
+
+        selected = normalize_account(account) if account is not None else None
+        with self.connect() as db:
+            records = [json.loads(row[0]) for row in db.execute("SELECT payload FROM fixed_events")]
+        return sorted((record for record in records if selected is None or record["account"] == selected),
+                      key=lambda record: (record["start_at"], record["id"]))
+
+    def save_fixed_events(self, events: list[dict]) -> list[str]:
+        """Save reviewed proposals atomically; repeat extraction keeps human edits."""
+        from uuid import uuid4
+
+        from studentflow.fixed_events import same_reviewed_event, validate_confirmed_event
+
+        checked = [validate_confirmed_event(event) for event in events]
+        identifiers = []
+        stamp = datetime.now(UTC).isoformat()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            records = [json.loads(row[0]) for row in db.execute("SELECT payload FROM fixed_events")]
+            for event in checked:
+                previous = next((record for record in records if same_reviewed_event(event, record)), None)
+                if previous is not None:
+                    for source in event["sources"]:
+                        if source not in previous["sources"]:
+                            previous["sources"].append(source)
+                    # Preserve current title, start, end, location and commute.
+                    db.execute("UPDATE fixed_events SET payload=? WHERE id=?",
+                               (json.dumps(previous, ensure_ascii=False), previous["id"]))
+                    identifiers.append(previous["id"])
+                    continue
+                record = dict(event, id=uuid4().hex, created_at=stamp, updated_at=stamp)
+                record["_extraction_identity"] = event.get("_extraction_identity") or {
+                    key: event.get(key) for key in (
+                        "title", "event_key", "course", "kind", "start_at", "end_at", "location", "in_person",
+                    )
+                }
+                db.execute("INSERT INTO fixed_events VALUES (?, ?)",
+                           (record["id"], json.dumps(record, ensure_ascii=False)))
+                records.append(record)
+                identifiers.append(record["id"])
+        return identifiers
+
+    def update_fixed_event(self, identifier: str, changes: dict, *, account: str) -> dict:
+        from studentflow.fixed_events import normalize_account, validate_confirmed_event
+
+        selected = normalize_account(account)
+        allowed = {"title", "start_at", "end_at", "location", "in_person", "travel_minutes", "kind"}
+        if set(changes) - allowed:
+            raise ValueError("Only event details can be changed here.")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT payload FROM fixed_events WHERE id=?", (identifier,)).fetchone()
+            record = json.loads(row[0]) if row else None
+            if not record or record["account"] != selected:
+                raise ValueError("This event is not available for the selected account.")
+            updated = validate_confirmed_event(record | changes)
+            updated["updated_at"] = datetime.now(UTC).isoformat()
+            db.execute("UPDATE fixed_events SET payload=? WHERE id=?",
+                       (json.dumps(updated, ensure_ascii=False), identifier))
+        return updated
+
+    def delete_fixed_event(self, identifier: str, *, account: str) -> None:
+        from studentflow.fixed_events import normalize_account
+
+        selected = normalize_account(account)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT payload FROM fixed_events WHERE id=?", (identifier,)).fetchone()
+            if row is None or json.loads(row[0])["account"] != selected:
+                raise ValueError("This event is not available for the selected account.")
+            db.execute("DELETE FROM fixed_events WHERE id=?", (identifier,))
+
+    def review_task_effort(self, task_id: str, final_minutes: int | None, suggestion: dict,
+                           *, expected_updated_at: str) -> dict:
+        """Atomically apply one person's estimate review without changing evidence or progress."""
+        if not isinstance(expected_updated_at, str) or not expected_updated_at:
+            raise ValueError("Refresh the task before reviewing its study-time estimate.")
+        if not isinstance(suggestion, dict):
+            raise ValueError("The study-time suggestion must be a record.")  # noqa: TRY004
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT payload FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None:
+                raise ValueError("This task is no longer available. Refresh the task list.")
+            previous = json.loads(row[0])
+            if previous.get("updated_at") != expected_updated_at:
+                raise ValueError("This task changed in another view. Refresh and review the latest details.")
+            advice = dict(suggestion)
+            # Source-stated effort is evidence, not a later model's new guess.
+            if isinstance(previous.get("effort_review"), dict):
+                advice["stated_minutes"] = previous["effort_review"].get("stated_minutes")
+            review = build_effort_review(advice, final_minutes, model=advice.get("model", ""))
+            estimate = review["confirmed_minutes"]
+            if previous.get("completed_minutes", 0) > (estimate or 0):
+                raise ValueError("The estimate cannot be less than the time already completed.")
+            record = previous | {
+                "estimated_minutes": estimate,
+                "effort_review": review,
+                "status": "confirmed" if previous.get("due_at") and estimate else "pending",
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+            record = self._task(record)
+            db.execute("UPDATE tasks SET payload=? WHERE id=?",
+                       (json.dumps(record, ensure_ascii=False), task_id))
         return record
 
     def delete_task(self, task_id: str, *, expected_updated_at=None) -> bool:
@@ -280,7 +411,7 @@ class Store:
                 previous.pop("saved_at", None)
                 if json.dumps(previous, ensure_ascii=False, sort_keys=True) == payload:
                     return latest[0]
-            saved_at = datetime.now(timezone.utc).isoformat()
+            saved_at = datetime.now(UTC).isoformat()
             record_id = hashlib.sha256((payload + saved_at).encode()).hexdigest()
             saved = dict(plan, id=record_id, saved_at=saved_at)
             db.execute("INSERT INTO plans VALUES (?, ?)", (record_id, json.dumps(saved, ensure_ascii=False)))
@@ -332,7 +463,7 @@ class Store:
             for value in minutes.values()
         ):
             raise ValueError("Study progress must use whole minutes from 0 to 10000.")
-        instant = now or datetime.now(timezone.utc)
+        instant = now or datetime.now(UTC)
         if instant.utcoffset() is None:
             raise ValueError("The review time must include a timezone.")
         with self.connect() as db:

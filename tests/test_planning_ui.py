@@ -141,6 +141,9 @@ render_planner(store.tasks(), store, path)
     run()
     with store.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM plans").fetchone()[0] == 1
+    dated = read_preferences(tmp_path / "planning_preferences.json")["availability_overrides"]
+    app.multiselect(key="sf_plan_remove_slots").set_value(["change:" + entry["id"] for entry in dated])
+    run()
     button("Remove selected time").click()
     run()
     assert button("Generate study plan").disabled

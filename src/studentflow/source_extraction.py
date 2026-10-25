@@ -13,8 +13,9 @@ from studentflow import extraction
 from studentflow.attachments import extract_attachment
 from studentflow.extraction_cache import ExtractionCache, attach_item_ids, source_cache_key
 
-# Include validation changes: older results may have already lost their quote.
-PIPELINE_VERSION = "source-pipeline-v2"
+# Fixed appointments now have a separate review; refresh old browser task proposals
+# as well as prompt-hashed source caches. Saved human-reviewed tasks stay unchanged.
+PIPELINE_VERSION = "source-pipeline-v3-fixed-events"
 _SOURCE_FAILURE = "This source could not be analyzed. Run extraction again to retry."
 _MISSING_ANCHOR_WARNING = "The sent time is missing or has no valid timezone. Relative dates need manual review."
 

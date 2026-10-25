@@ -98,6 +98,19 @@ def _render_editor(store, task):
     st.caption("Estimated study time is the total time needed, including time already completed. "
                "Remaining time is the estimate minus completed minutes. "
                "When remaining time reaches 0, the task moves to Completed.")
+    effort = task.get("effort_review")
+    if effort:
+        with st.expander("Study-time estimate history"):
+            st.dataframe([{
+                "Source-stated minutes": effort.get("stated_minutes"),
+                "AI suggested minutes": effort.get("suggested_minutes"),
+                "Confirmed minutes": effort.get("confirmed_minutes"),
+                "Review decision": str(effort.get("decision", "")).replace("_", " "),
+            }], hide_index=True)
+            if effort.get("estimate_reason"):
+                st.text(effort["estimate_reason"])
+            for assumption in effort.get("assumptions", []):
+                st.text(assumption)
     with st.expander("Original supporting text", expanded=False):
         evidence = task.get("sources") or [task]
         for item in evidence:

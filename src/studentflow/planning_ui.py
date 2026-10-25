@@ -18,7 +18,20 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from studentflow.planner import DEFAULT_MEALS, is_completed, propose_schedule, validate_schedule
+from studentflow.availability import (
+    DEFAULT_HORIZON_DAYS,
+    normalize_availability,
+    prune_expired_availability,
+    resolve_availability,
+)
+from studentflow.availability_ui import render_availability
+from studentflow.planner import (
+    DEFAULT_MEALS,
+    PLANNING_POLICY_VERSION,
+    is_completed,
+    propose_schedule,
+    validate_schedule,
+)
 
 ZONE = ZoneInfo("Asia/Singapore")
 
@@ -27,6 +40,9 @@ def default_preferences() -> dict:
     """Start with no assumed personal availability or commitments."""
     return {
         "available_slots": [],
+        "weekly_availability": [],
+        "availability_overrides": [],
+        "availability_horizon_days": DEFAULT_HORIZON_DAYS,
         "busy_events": [],
         "settings": {
             "timezone": "Asia/Singapore",
@@ -81,11 +97,11 @@ def read_preferences(path: Path) -> dict:
     errors = validate_schedule([], [], value["available_slots"], value["busy_events"], settings)
     if errors:
         raise ValueError("Saved planning preferences could not be loaded.")
-    return value
+    return normalize_availability(value)
 
 
 def write_preferences(path: Path, preferences: dict) -> None:
-    """Replace one local preference file only after an explicit UI action."""
+    """Atomically replace preferences after a UI change or expired-date cleanup."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
@@ -127,7 +143,7 @@ def parse_meal_breaks(value: str) -> list[dict]:
 
 def make_draft(tasks: list[dict], preferences: dict, now: str, completed_by_day: dict) -> dict:
     settings = preferences["settings"] | {"now": now, "completed_by_day": completed_by_day}
-    slots, events = preferences["available_slots"], preferences["busy_events"]
+    slots, events = resolve_availability(preferences, now), preferences["busy_events"]
     result = propose_schedule(tasks, slots, events, settings)
     return {
         "signature": planning_signature(tasks, preferences | {"completed_by_day": completed_by_day}, now),
@@ -138,7 +154,8 @@ def make_draft(tasks: list[dict], preferences: dict, now: str, completed_by_day:
 
 
 def planning_signature(tasks: list[dict], preferences: dict, now: str) -> str:
-    payload = {"tasks": tasks, "preferences": preferences, "now": now}
+    payload = {"tasks": tasks, "preferences": preferences, "now": now,
+               "planning_policy": PLANNING_POLICY_VERSION}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -211,40 +228,7 @@ def _period_table(entries: list[dict], commitments: bool = False) -> None:
 
 
 def _availability(preferences: dict, path: Path) -> None:
-    slots = preferences["available_slots"]
-    st.markdown("**Available study time**")
-    if slots:
-        _period_table(slots)
-    else:
-        st.info("Add a time window when you are available to study.")
-    with (
-        st.expander("Add available time", expanded=not slots),
-        st.form("sf_plan_add_availability"),
-    ):
-        day = st.date_input("Date", value=datetime.now(ZONE).date(), key="sf_plan_slot_day")
-        left, right = st.columns(2)
-        start = left.time_input("Start", value=time(9), key="sf_plan_slot_start")
-        end = right.time_input("End", value=time(11), key="sf_plan_slot_end")
-        if st.form_submit_button("Add available time"):
-            try:
-                entry = window(day, start, end)
-                updated = deepcopy(preferences)
-                updated["available_slots"].append(entry)
-                _save(path, updated, "Available time added.")
-            except ValueError as exc:
-                st.error(str(exc))
-    if slots:
-        with st.expander("Remove available time"):
-            chosen = st.selectbox(
-                "Time window",
-                range(len(slots)),
-                format_func=lambda index: _period_label(slots[index]),
-                key="sf_plan_remove_slot",
-            )
-            if st.button("Remove selected time", key="sf_plan_remove_slot_button"):
-                updated = deepcopy(preferences)
-                updated["available_slots"].pop(chosen)
-                _save(path, updated, "Available time removed.")
+    render_availability(preferences, path, _save, datetime.now(ZONE))
 
 
 def _commitments(preferences: dict, path: Path) -> None:
@@ -395,7 +379,7 @@ def _saved_plan(store) -> None:
             ], hide_index=True, width="stretch")
 
 
-def render_planner(tasks: list[dict], store, data_dir: Path) -> None:
+def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | None = None) -> None:
     """Render personal schedule inputs and a separately confirmed local draft."""
     st.subheader("Study Plan")
     st.caption(
@@ -407,6 +391,14 @@ def render_planner(tasks: list[dict], store, data_dir: Path) -> None:
     path = Path(data_dir) / "planning_preferences.json"
     try:
         preferences = read_preferences(path)
+        preferences, removed = prune_expired_availability(preferences, datetime.now(ZONE))
+        if removed:
+            # Only availability records are pruned; saved plans and daily progress
+            # are separate historical records and are intentionally untouched.
+            try:
+                write_preferences(path, preferences)
+            except OSError:
+                st.warning("Expired availability is hidden, but cleanup could not be saved. Check local file access.")
     except (ValueError, TypeError, KeyError, OSError):
         st.error(
             "Saved planning preferences could not be loaded. Restore your settings to continue."
@@ -421,6 +413,45 @@ def render_planner(tasks: list[dict], store, data_dir: Path) -> None:
     with right:
         _commitments(preferences, path)
 
+    from studentflow.fixed_events_ui import render_fixed_events
+    from studentflow.scheduling_context import (
+        saved_plan_is_fresh,
+        source_fingerprint,
+        with_fixed_events,
+    )
+
+    fixed_events = store.list_fixed_events()
+    accounts = sorted({event["account"] for event in fixed_events})
+    connected = str(st.session_state.get("gmail_profile", {}).get("email_address") or "").casefold()
+    if connected and connected not in accounts:
+        accounts.append(connected)
+    if accounts:
+        account = accounts[0] if len(accounts) == 1 else st.selectbox("Fixed-event account", accounts)
+        render_fixed_events(store, account=account)
+
+    if root is not None:
+        from studentflow.calendar_sync_ui import render_calendar_sync
+
+        def current_fingerprint():
+            fingerprint = source_fingerprint(
+                store.tasks(), read_preferences(path), store.list_fixed_events(), store.progress_by_day(),
+            )
+            return fingerprint + ":" + str((store.latest_plan() or {}).get("id", ""))
+
+        def is_fresh(plan):
+            return saved_plan_is_fresh(
+                plan, store.tasks(), read_preferences(path), store.list_fixed_events(),
+                store.progress_by_day(), datetime.now(ZONE).isoformat(),
+            )
+
+        render_calendar_sync(
+            store, root, data_dir, fixed_events=fixed_events,
+            current_fingerprint=current_fingerprint, saved_plan_is_fresh=is_fresh,
+        )
+    # Confirmed appointments block the planner but are never written into the
+    # user's manually edited preference file or counted as study effort.
+    preferences = with_fixed_events(preferences, fixed_events)
+
     st.markdown("**Plan your tasks**")
     if not tasks:
         st.info("Save a task from an email before creating a study plan.")
@@ -428,12 +459,14 @@ def render_planner(tasks: list[dict], store, data_dir: Path) -> None:
         ready = sum(task.get("status") == "confirmed" and not is_completed(task) for task in tasks)
         st.caption(
             f"{ready} confirmed unfinished task(s). Remaining study time is scheduled, with earlier deadlines first. "
+            "Today's elapsed time is skipped; future days start from the earliest available time after meals and commitments. "
+            "Sessions prefer whole-hour starts, using other times when needed to fit work before deadlines. "
             "Tasks with missing details will be listed for review."
         )
     # Start at the next whole minute so saving a draft never schedules in the past.
     now = (datetime.now(ZONE) + timedelta(minutes=1)).replace(second=0, microsecond=0).isoformat()
     progress = store.progress_by_day()
-    slots = preferences["available_slots"]
+    slots = resolve_availability(preferences, now)
     signature = planning_signature(tasks, preferences | {"completed_by_day": progress}, now)
     generate = st.button("Generate study plan", disabled=not tasks or not slots, type="primary")
     replan = st.button("Replan remaining tasks", disabled=not tasks or not slots, key="sf_plan_replan")

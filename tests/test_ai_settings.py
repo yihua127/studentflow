@@ -8,7 +8,6 @@ from streamlit.testing.v1 import AppTest
 
 from studentflow import ai_settings
 
-
 FAKE_KEY = "sk-test-not-a-real-key-12345"
 
 
