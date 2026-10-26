@@ -122,3 +122,11 @@ Tests cover email parsing, attachment evidence and retention, task editing, prog
 Assistant tests run the real SDK orchestration with scripted models, selected-source tools, and mocked Google services. They cover role boundaries, evidence checks, limits, duplicate suggestions, failure rollback, account isolation and stale-result handling. No live API results are implied by these tests.
 
 Entry point: `app.py`. Application modules: `src/studentflow/`. Tests: `tests/`.
+
+## Published examples
+
+The A/B scenarios in `config/scenarios.json` use fictional dates, events and rooms. They are development examples, not a personal timetable. Planning defaults are editable assumptions, not verified travel or calendar facts. Each user supplies their own availability and account connections.
+
+Before publication, the 18-commit development history was backed up privately and rewritten to remove the personal commit email, original timetable examples and machine-specific setup path. Local credentials, messages, databases and generated minutes are excluded from this repository. Historical development notes retain their original scope and dates; see [Validation status](docs/TESTING.md) for the latest recorded checks.
+
+No open-source license has been selected for this repository yet.
