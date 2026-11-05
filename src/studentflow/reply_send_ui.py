@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from contextlib import closing
+from html import escape
 from pathlib import Path
 
 import streamlit as st
@@ -47,7 +48,15 @@ def render_reply_send(root: Path, data_dir: Path, item: dict, source: dict,
     read_token = data_dir / "auth" / "gmail_token.json"
     send_token = data_dir / "auth" / TOKEN_FILENAME
     with st.expander("Send with Gmail"):
-        st.caption("Send this reply from " + account + ". The assistant never sends automatically.")
+        st.html('<div class="sf-action-step">1 · Prepare your reply</div>')
+        connection_label = "Sending sign-in saved" if send_token.is_file() else "Connect sending"
+        connection_style = "sf-pill-neutral" if send_token.is_file() else "sf-pill-warning"
+        st.html(
+            '<div class="sf-workspace-account">'
+            f'<span class="sf-pill {connection_style}">{connection_label}</span>'
+            f'<span>{escape(account)}</span></div>'
+        )
+        st.caption("Review the recipient and exact message before sending.")
         recipient = st.text_input(
             "Reply recipient", value=item.get("recipient") or "", key=prefix + "_recipient",
             help="The address must match this email's verified Reply-To or From address.",
@@ -65,7 +74,8 @@ def render_reply_send(root: Path, data_dir: Path, item: dict, source: dict,
         if not send_token.is_file():
             st.caption("Connect sending once to grant Gmail permission to send the replies you approve.")
         connect_label = "Connect Gmail sending" if not send_token.is_file() else "Change sending connection"
-        if st.button(connect_label, key=prefix + "_connect"):
+        connection_column, prepare_column = st.columns(2, gap="small")
+        if connection_column.button(connect_label, key=prefix + "_connect", width="stretch"):
             st.session_state.pop(preview_key, None)
             saved = None
             try:
@@ -78,7 +88,7 @@ def render_reply_send(root: Path, data_dir: Path, item: dict, source: dict,
             except GmailError as error:
                 st.error(str(error))
 
-        if st.button("Review for sending", key=prefix + "_prepare",
+        if prepare_column.button("Review for sending", key=prefix + "_prepare", width="stretch",
                      disabled=bool(markers) or not recipient.strip() or not subject.strip() or not body.strip()):
             st.session_state.pop(preview_key, None)
             saved = None
@@ -112,16 +122,29 @@ def render_reply_send(root: Path, data_dir: Path, item: dict, source: dict,
             return
         if receipt and receipt["status"] == "rejected":
             st.info("Gmail rejected the previous attempt. Check the connection and review before retrying.")
-        st.text("From: " + preview.sender)
-        st.text("To: " + preview.recipient)
-        st.text("Subject: " + preview.subject)
-        st.text(preview.body)
+        with st.container(border=True, key="sf_panel_reply_preview_" + prefix):
+            st.html('<div class="sf-action-step">2 · Review the exact message</div>')
+            st.html(
+                '<dl class="sf-review-meta">'
+                f'<dt>From</dt><dd>{escape(preview.sender)}</dd>'
+                f'<dt>To</dt><dd>{escape(preview.recipient)}</dd>'
+                f'<dt>Subject</dt><dd>{escape(preview.subject)}</dd></dl>'
+            )
+            st.divider()
+            st.text(preview.body)
+        st.html('<div class="sf-action-step">3 · Confirm and send</div>')
         review_key = prefix + "_reviewed_" + current
-        reviewed = st.checkbox("I have reviewed the recipient and this exact message.", key=review_key)
+        review_column, send_column = st.columns([3, 1], gap="medium", vertical_alignment="center")
+        reviewed = review_column.checkbox(
+            "I have reviewed the recipient and this exact message.", key=review_key,
+        )
         ready = reviewed and not markers and send_token.is_file()
         if not send_token.is_file():
             st.caption("Connect Gmail sending above to enable sending.")
-        if st.button("Send with Gmail", type="primary", key=prefix + "_send", disabled=not ready):
+        if send_column.button(
+            "Send with Gmail", type="primary", key=prefix + "_send", disabled=not ready,
+            width="stretch",
+        ):
             # Repeat UI conditions at the event boundary; the backend verifies
             # current source metadata, both account identities and the journal.
             if not ready or saved["content"] != current:

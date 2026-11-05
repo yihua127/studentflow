@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import closing
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -52,7 +53,11 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
         if not client_path.is_file():
             st.info("Configure the Google desktop sign-in client in Gmail setup first.")
             return
-        if st.button("Connect or change Calendar sync account", key=PREFIX + "connect"):
+        st.html('<div class="sf-action-step">1 · Connect your calendar</div>')
+        connect_column, disconnect_column = st.columns([3, 2], gap="small")
+        if connect_column.button(
+            "Connect or change Calendar sync account", key=PREFIX + "connect", width="stretch",
+        ):
             st.session_state.pop(PREFIX + "preview", None)
             try:
                 with closing(connect_workspace(
@@ -68,8 +73,16 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
             return
         account = st.session_state.get(PREFIX + "account")
         if account:
-            st.caption("Calendar account: " + account)
-        if st.button("Disconnect Calendar sync", key=PREFIX + "disconnect"):
+            st.html(
+                '<div class="sf-workspace-account">'
+                '<span class="sf-pill sf-pill-neutral">Calendar account</span>'
+                f'<span>{escape(account)}</span></div>'
+            )
+        else:
+            st.caption("Calendar sign-in saved. Preview changes to check the connected account.")
+        if disconnect_column.button(
+            "Disconnect Calendar sync", key=PREFIX + "disconnect", width="stretch",
+        ):
             try:
                 token_path.unlink(missing_ok=True)
                 for key in list(st.session_state):
@@ -80,6 +93,8 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
                 st.error("The saved Calendar connection could not be removed. Try again.")
             return
         try:
+            st.divider()
+            st.html('<div class="sf-action-step">2 · Prepare a preview</div>')
             plan = store.latest_plan()
             fingerprint = current_fingerprint()
             fresh = not plan or saved_plan_is_fresh(plan)
@@ -94,7 +109,7 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
                 "Include saved study sessions", value=bool(plan) and fresh,
                 disabled=not fresh or not plan, key=PREFIX + "include_plan",
             )
-            if st.button("Preview Calendar changes", key=PREFIX + "preview_button"):
+            if st.button("Preview Calendar changes", key=PREFIX + "preview_button", width="stretch"):
                 st.session_state.pop(PREFIX + "preview", None)
                 with (
                     st.spinner("Checking the StudentFlow calendar..."),
@@ -118,7 +133,12 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
                 st.session_state.pop(PREFIX + "preview", None)
                 st.info("The saved plan or events changed. Preview Calendar changes again.")
                 return
-            st.write("Sync to: **" + preview["account"] + "** · StudentFlow calendar")
+            st.html('<div class="sf-action-step">3 · Review and sync</div>')
+            st.html(
+                '<dl class="sf-review-meta">'
+                '<dt>Calendar</dt><dd>StudentFlow</dd>'
+                f'<dt>Account</dt><dd>{escape(preview["account"])}</dd></dl>'
+            )
             if preview.get("excluded_fixed_count"):
                 st.caption(
                     f"{preview['excluded_fixed_count']} confirmed fixed event(s) belong to "
@@ -129,9 +149,15 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
             operations = preview["operations"]
             counts = {action: sum(op["action"] == action for op in operations)
                       for action in ("create", "update", "remove")}
-            st.caption(
-                f"{counts['create']} to add · {counts['update']} to update · "
-                f"{counts['remove']} future events to remove"
+            st.html(
+                '<div class="sf-artifact-counts">' + ''.join(
+                    '<div class="sf-artifact-count">'
+                    f'<strong>{counts[action]}</strong><span>{label}</span></div>'
+                    for action, label in (
+                        ("create", "to add"), ("update", "to update"),
+                        ("remove", "future events to remove"),
+                    )
+                ) + '</div>'
             )
             if not operations:
                 st.success("No calendar changes are needed.")
@@ -147,13 +173,16 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
                     "Previous start": _display_time(previous["start"]) if previous else "",
                     "Previous end": _display_time(previous["end"]) if previous else "",
                 })
-            st.dataframe(rows, hide_index=True, width="stretch")
-            confirmed = st.checkbox(
+            with st.container(border=True, key="sf_panel_calendar_preview"):
+                st.markdown("**Changes to review**")
+                st.dataframe(rows, hide_index=True, width="stretch")
+            review_column, sync_column = st.columns([2, 1], gap="medium", vertical_alignment="center")
+            confirmed = review_column.checkbox(
                 "I have reviewed these changes to my StudentFlow calendar.",
                 key=PREFIX + "review_" + preview["signature"],
             )
-            if st.button("Sync reviewed changes", disabled=not confirmed, type="primary",
-                         key=PREFIX + "apply_" + preview["signature"]):
+            if sync_column.button("Sync reviewed changes", disabled=not confirmed, type="primary",
+                                  key=PREFIX + "apply_" + preview["signature"], width="stretch"):
                 with (
                     st.spinner("Syncing the reviewed calendar changes..."),
                     closing(connect_workspace(

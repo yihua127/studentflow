@@ -90,12 +90,13 @@ def render_daily_review(store, data_dir: Path) -> None:
         st.error("Daily progress could not be loaded. Please reopen the app and try again.")
         return
     if notice := st.session_state.get("sf_daily_review_notice"):
-        st.success(notice)
-        st.caption("You can now replan your remaining work, with earlier deadlines first.")
-        if st.button("Replan remaining tasks", key="sf_checkin_replan"):
-            st.session_state["sf_replan_requested"] = True
-            st.session_state.pop("sf_daily_review_notice", None)
-            st.rerun()
+        with st.container(border=True, key="sf_panel_daily_saved"):
+            st.success(notice)
+            st.caption("You can now replan your remaining work, with earlier deadlines first.")
+            if st.button("Replan remaining tasks", key="sf_checkin_replan", type="primary"):
+                st.session_state["sf_replan_requested"] = True
+                st.session_state.pop("sf_daily_review_notice", None)
+                st.rerun()
     if not due:
         return
     task_map = {task["id"]: task for task in store.tasks()}
@@ -106,45 +107,56 @@ def render_daily_review(store, data_dir: Path) -> None:
     )
     for day in due:
         key = day["date"]
-        st.markdown(f"**{key} · study ends at {day['study_end']}**")
-        st.dataframe([
-            {"Task": day["titles"][task_id], "Planned (min)": minutes}
-            for task_id, minutes in day["minutes"].items()
-        ], hide_index=True, width="stretch")
-        answer = st.radio(
-            "Did you finish all the study time planned for this day?",
-            ["Yes, all planned study time", "No, enter completed minutes"],
-            index=None,
-            key=f"sf_checkin_answer_{key}",
-        )
-        minutes = {}
-        if answer == "Yes, all planned study time":
-            minutes = dict(day["minutes"])
-            st.caption("This records the minutes in the plan. A task is completed when its remaining time reaches zero.")
-        elif answer:
-            st.caption("Enter the minutes actually completed for each task. Leave 0 for tasks you did not study.")
-            for task_id, planned in day["minutes"].items():
-                task = task_map.get(task_id, {})
-                remaining = max(0, (task.get("estimated_minutes") or 0) - task.get("completed_minutes", 0))
-                minutes[task_id] = int(st.number_input(
-                    f"{day['titles'][task_id]} — completed minutes (planned: {planned})",
-                    min_value=0,
-                    max_value=max(remaining, 1),
-                    value=0,
-                    step=5,
-                    disabled=remaining == 0,
-                    key=f"sf_checkin_minutes_{key}_{task_id}",
-                )) if remaining else 0
-        if st.button("Save daily progress", key=f"sf_checkin_save_{key}", disabled=answer is None):
-            try:
-                saved = store.record_daily_review(key, day["plan_id"], minutes)
-            except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
-                st.error(f"Progress could not be saved: {exc}")
-            else:
-                total = sum(saved["minutes"].values())
-                st.session_state["sf_daily_review_notice"] = (
-                    f"Progress saved for {key}: {total} minute(s). "
-                    "Tasks with no remaining study time are now in Completed."
+        with st.container(border=True, key="sf_panel_daily_" + key):
+            st.html('<div class="sf-eyebrow">YOUR DAILY CHECK-IN</div>')
+            st.markdown(f"**{key} · study ends at {day['study_end']}**")
+            recap, checkin = st.columns([1, 1.2], gap="large")
+            with recap:
+                planned, tasks = st.columns(2, gap="small")
+                planned.metric("Planned study", f"{sum(day['minutes'].values())} min")
+                tasks.metric("Tasks planned", str(len(day["minutes"])))
+                st.dataframe([
+                    {"Task": day["titles"][task_id], "Planned (min)": minutes}
+                    for task_id, minutes in day["minutes"].items()
+                ], hide_index=True, width="stretch")
+            with checkin, st.container(key="sf_daily_inputs_" + key):
+                answer = st.radio(
+                    "Did you finish all the study time planned for this day?",
+                    ["Yes, all planned study time", "No, enter completed minutes"],
+                    index=None,
+                    key=f"sf_checkin_answer_{key}",
                 )
-                st.session_state.pop("planner_draft", None)
-                st.rerun()
+                minutes = {}
+                if answer == "Yes, all planned study time":
+                    minutes = dict(day["minutes"])
+                    st.caption("This records the minutes in the plan. A task is completed when its remaining time reaches zero.")
+                elif answer:
+                    st.caption("Enter the minutes actually completed for each task. Leave 0 for tasks you did not study.")
+                    for task_id, planned in day["minutes"].items():
+                        task = task_map.get(task_id, {})
+                        remaining = max(0, (task.get("estimated_minutes") or 0) - task.get("completed_minutes", 0))
+                        minutes[task_id] = int(st.number_input(
+                            f"{day['titles'][task_id]} — completed minutes (planned: {planned})",
+                            min_value=0,
+                            max_value=max(remaining, 1),
+                            value=0,
+                            step=5,
+                            disabled=remaining == 0,
+                            key=f"sf_checkin_minutes_{key}_{task_id}",
+                        )) if remaining else 0
+                if st.button(
+                    "Save daily progress", key=f"sf_checkin_save_{key}",
+                    disabled=answer is None, type="primary", width="stretch",
+                ):
+                    try:
+                        saved = store.record_daily_review(key, day["plan_id"], minutes)
+                    except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
+                        st.error(f"Progress could not be saved: {exc}")
+                    else:
+                        total = sum(saved["minutes"].values())
+                        st.session_state["sf_daily_review_notice"] = (
+                            f"Progress saved for {key}: {total} minute(s). "
+                            "Tasks with no remaining study time are now in Completed."
+                        )
+                        st.session_state.pop("planner_draft", None)
+                        st.rerun()

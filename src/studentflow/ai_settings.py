@@ -80,8 +80,9 @@ def check_ai_connection(api_key: str, model: str) -> bool:
 
 def render_ai_settings(root: Path) -> None:
     """Render settings without ever sending the saved key to a form field."""
-    st.subheader("AI settings")
-    st.caption("Connect OpenAI to extract tasks from your email.")
+    st.html('<div class="sf-eyebrow">SET UP YOUR WORKSPACE</div>')
+    st.title("Settings")
+    st.caption("Manage the AI connection used for task extraction, replies and discussion summaries.")
     try:
         api_key, model = read_ai_settings(root)
     except ValueError as error:
@@ -91,50 +92,70 @@ def render_ai_settings(root: Path) -> None:
         st.session_state["sf_ai_api_key_input"] = ""
         st.session_state["sf_ai_model_input"] = model
         st.success("AI settings saved on this device.")
-    if api_key:
-        st.info(f"API key saved. Current model: {model}")
-    else:
-        st.info("Add your OpenAI API key to enable AI extraction.")
-    st.markdown(
-        "[OpenAI billing](https://platform.openai.com/settings/organization/billing/overview)"
-        " · [Create an API key](https://platform.openai.com/api-keys)"
-        " · [Setup guide](https://github.com/yihua127/studentflow/blob/main/docs/OPENAI_SETUP.md)"
-    )
     st.session_state.setdefault("sf_ai_model_input", model)
-    with st.form("sf_ai_settings_form", clear_on_submit=True):
-        entered_key = st.text_input(
-            "OpenAI API key", type="password", key="sf_ai_api_key_input",
-            help="Saved on this device. Leave blank to keep your current key.",
-        )
-        entered_model = st.text_input(
-            "Model ID", key="sf_ai_model_input",
-            help="Choose a model with structured output support, such as gpt-5.4-mini.",
-        )
-        submitted = st.form_submit_button("Save AI settings", type="primary")
-    if submitted:
-        try:
-            save_ai_settings(root, entered_key, entered_model)
-        except ValueError as error:
-            st.error(str(error))
-        else:
-            st.session_state.sf_ai_settings_saved = True
-            st.rerun()
-    st.caption(
-        "Test AI connection sends a short built-in example to OpenAI. "
-        "Standard API usage charges apply."
-    )
-    if st.button("Test AI connection", disabled=not api_key, key="sf_ai_test_connection"):
-        with st.spinner("Checking AI connection..."):
+    configuration, support = st.columns([1.2, 1], gap="medium")
+    with configuration, st.container(border=True, key="sf_panel_settings_configuration"):
+        st.html('<div class="sf-eyebrow">01 / CONFIGURE</div>')
+        st.subheader("AI settings")
+        st.caption("Save your connection details on this device. Changes take effect after saving.")
+        with st.form("sf_ai_settings_form", clear_on_submit=True):
+            entered_key = st.text_input(
+                "OpenAI API key", type="password", key="sf_ai_api_key_input",
+                help="Saved on this device. Leave blank to keep your current key.",
+                placeholder="Leave blank to keep your saved key" if api_key else "Enter your API key",
+            )
+            entered_model = st.text_input(
+                "Model ID", key="sf_ai_model_input",
+                help="Choose a model with structured output support, such as gpt-5.4-mini.",
+            )
+            submitted = st.form_submit_button("Save AI settings", type="primary", width="stretch")
+        if submitted:
             try:
-                valid = check_ai_connection(api_key, model)
-            except Exception:  # noqa: BLE001 - Never expose provider request data or credentials.
-                # Provider exceptions can contain request data or credentials.
-                st.error(
-                    "The AI connection could not be verified. Check your API key, "
-                    "API balance, internet connection, and model access."
-                )
+                save_ai_settings(root, entered_key, entered_model)
+            except ValueError as error:
+                st.error(str(error))
             else:
-                if valid:
-                    st.success("AI connection successful. Task extraction is ready.")
-                else:
-                    st.warning("The model responded. Try the check again to verify task extraction.")
+                st.session_state.sf_ai_settings_saved = True
+                st.rerun()
+        st.caption("Your saved key is never filled back into this form. Leave it blank when changing only the model.")
+    with support:
+        with st.container(border=True, key="sf_panel_settings_connection"):
+            st.html('<div class="sf-eyebrow">02 / CHECK</div>')
+            st.subheader("Connection check")
+            st.html(
+                '<span class="sf-pill sf-pill-success">Key saved</span>' if api_key else
+                '<span class="sf-pill sf-pill-warning">Setup needed</span>'
+            )
+            st.caption("Current saved model")
+            st.text(model)
+            if not api_key:
+                st.caption("Add your OpenAI API key to enable AI extraction.")
+            st.caption(
+                "Test AI connection sends a short built-in example to OpenAI. "
+                "Standard API usage charges apply."
+            )
+            if st.button("Test AI connection", disabled=not api_key, key="sf_ai_test_connection", width="stretch"):
+                with st.spinner("Checking AI connection..."):
+                    try:
+                        valid = check_ai_connection(api_key, model)
+                    except Exception:  # noqa: BLE001 - Never expose provider request data or credentials.
+                        st.error(
+                            "The AI connection could not be verified. Check your API key, "
+                            "API balance, internet connection, and model access."
+                        )
+                    else:
+                        if valid:
+                            st.success("AI connection successful. Task extraction is ready.")
+                        else:
+                            st.warning("The model responded. Try the check again to verify task extraction.")
+        with st.container(border=True, key="sf_panel_settings_help"):
+            st.subheader("Setup & account")
+            st.caption("Find your key, check API billing or follow the setup guide.")
+            for label, url in (
+                ("Create an API key", "https://platform.openai.com/api-keys"),
+                ("OpenAI billing", "https://platform.openai.com/settings/organization/billing/overview"),
+                ("Setup guide", "https://github.com/yihua127/studentflow/blob/main/docs/OPENAI_SETUP.md"),
+            ):
+                st.link_button(
+                    label, url, width="stretch", icon=":material/open_in_new:",
+                )

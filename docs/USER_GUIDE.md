@@ -117,6 +117,8 @@ Calendar sync requests Google's [`calendar.app.created` permission](https://deve
 
 At the daily study end time recorded in the saved plan, **Daily progress** asks whether all planned study time was completed. The app checks while the window is open and keeps missed reviews for the next visit.
 
+Each date has a check-in card with planned minutes and tasks beside the completion inputs. The save action records that day's review; the follow-up card offers replanning.
+
 1. Choose **Yes, all planned study time** to record the minutes in that day's plan, or **No, enter completed minutes** to enter actual minutes for each task. Use 0 for work not done.
 2. Select **Save daily progress**. Remaining time is reduced by the credited minutes, and tasks with zero remaining time move to **Completed**. Each day is recorded once, including after a refresh or restart.
 3. Select **Replan remaining tasks**, open **Study Plan**, review the new draft and select **Save plan**. Correct a recorded cumulative total later through the task editor if needed.
@@ -125,11 +127,15 @@ At the daily study end time recorded in the saved plan, **Daily progress** asks 
 
 Attachments from messages with extracted or saved tasks are kept on this device with their original files and readable text. Open **Attachments** to view them after restarting, search source text or choose **Download original**. Use **Save attachment** to keep another opened file.
 
-To remove an attachment, select its deletion checkbox and choose **Delete attachment**. The file and its indexed text are removed from the library; saved tasks and their supporting quotations remain. Deleted files stay removed when the same message is reopened.
+Use **Filter documents** on the left to find a filename or source message, then select a document to preview its full readable text and original-file actions on the right. **Search document text** searches all available documents, even when the browser is filtered.
+
+To remove an attachment, open **Manage attachment** in its preview, select its deletion checkbox and choose **Delete attachment**. The file and its indexed text are removed from the library; saved tasks and their supporting quotations remain. Deleted files stay removed when the same message is reopened.
 
 ## Settings
 
 Enter an OpenAI API key in **Settings**, keep the suggested model or enter another model ID, and select **Save AI settings**. The key is saved on your device and the input field is cleared. Leave the key field blank when changing only the model.
+
+The configuration form is on the left; the connection check and account/setup links are on the right. **Key saved** indicates a stored configuration, not a successful live connection test.
 
 Select **Test AI connection** to run a short built-in example. This uses the API balance. Once the check succeeds, return to **Inbox (Gmail)** to extract tasks. Follow the [OpenAI setup guide](OPENAI_SETUP.md) for account, billing and API key instructions.
 

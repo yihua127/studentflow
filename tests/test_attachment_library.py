@@ -97,15 +97,15 @@ def test_saved_attachment_ui_previews_searches_downloads_and_deletes_offline(tmp
     identifier = library.save_for_message(sample_mail())[0]
     app = AppTest.from_string(APP).run(timeout=30)
     assert not app.exception
-    assert any("Assignment.docx" in expander.label for expander in app.expander)
+    assert any("Assignment.docx" in option for option in app.radio(key="sf_attachment_browser").options)
     assert any("research report" in text.value for text in app.text)
     assert len(app.get("download_button")) == 1
     assert app.button(key=f"attachment_delete_{identifier}").disabled
-    app.text_input[0].set_value("research report")
+    app.text_input(key="sf_attachment_search").set_value("research report")
     next(button for button in app.button if button.label == "Search").click()
     app.run(timeout=30)
     assert not app.exception
-    assert len(app.text) == 2
+    assert sum("research report" in text.value for text in app.text) == 2
     app.checkbox(key=f"attachment_delete_confirm_{identifier}").check()
     app.run(timeout=30)
     app.button(key=f"attachment_delete_{identifier}").click()
@@ -121,12 +121,14 @@ def test_open_attachment_can_be_saved_individually_without_a_task(tmp_path, monk
     monkeypatch.setenv("ATTACHMENTS_TEST_DB", str(path))
     mail = sample_mail()
     mail["attachments"].append({**mail["attachments"][0], "filename": "second.docx"})
-    identifier = library_id(mail, mail["attachments"][0])
+    identifier = library_id(mail, mail["attachments"][1])
     app = AppTest.from_string(APP.replace(")), {})", ")), st.session_state.get('mails', {}))"))
     app.session_state["mails"] = {mail["id"]: mail}
     app.run(timeout=30)
     assert not app.exception
-    assert len(app.expander) == 2
+    assert len(app.radio(key="sf_attachment_browser").options) == 2
+    app.radio(key="sf_attachment_browser").set_value(identifier)
+    app.run(timeout=30)
     app.button(key=f"attachment_save_{identifier}").click()
     app.run(timeout=30)
     assert not app.exception
@@ -154,3 +156,89 @@ def test_reopened_message_for_old_saved_task_is_archived_without_ai_or_resave(tm
     assert not app.exception
     assert library.documents() == []
     assert not app.expander
+
+
+def test_document_browser_keeps_same_named_sources_distinct_and_delete_is_scoped(tmp_path, monkeypatch):
+    path = tmp_path / "records.sqlite3"
+    monkeypatch.setenv("ATTACHMENTS_TEST_DB", str(path))
+    first = sample_mail()
+    second = {**first, "id": "message-2", "subject": "Another course assignment"}
+    library = AttachmentLibrary(path)
+    first_id = library.save_for_message(first)[0]
+    second_id = library.save_for_message(second)[0]
+    store = Store(path)
+    store.save_task({"mail_id": second["id"], "title": "Retain this task", "status": "pending"})
+    app = AppTest.from_string(APP).run(timeout=30)
+    assert not app.exception
+    assert len(set(app.radio(key="sf_attachment_browser").options)) == 2
+    app.checkbox(key=f"attachment_delete_confirm_{first_id}").check()
+    app.run(timeout=30)
+    app.radio(key="sf_attachment_browser").set_value(second_id)
+    app.run(timeout=30)
+    assert not app.exception
+    assert any("Another course assignment" in caption.value for caption in app.caption)
+    assert not app.checkbox(key=f"attachment_delete_confirm_{second_id}").value
+    assert app.button(key=f"attachment_delete_{second_id}").disabled
+    assert len(app.get("download_button")) == 1
+    app.checkbox(key=f"attachment_delete_confirm_{second_id}").check()
+    app.run(timeout=30)
+    app.button(key=f"attachment_delete_{second_id}").click()
+    app.run(timeout=30)
+    assert not app.exception
+    assert [document["library_id"] for document in library.documents()] == [first_id]
+    assert app.radio(key="sf_attachment_browser").value == first_id
+    assert app.button(key=f"attachment_delete_{first_id}").disabled
+    assert store.tasks()[0]["title"] == "Retain this task"
+
+
+def test_document_filter_matches_source_but_keyword_search_still_covers_all_documents(tmp_path, monkeypatch):
+    path = tmp_path / "records.sqlite3"
+    monkeypatch.setenv("ATTACHMENTS_TEST_DB", str(path))
+    library = AttachmentLibrary(path)
+    library.save_for_message(sample_mail())
+    app = AppTest.from_string(APP).run(timeout=30)
+    app.text_input(key="sf_attachment_filter").set_value("COURSE")
+    app.run(timeout=30)
+    assert not app.exception
+    assert len(app.radio(key="sf_attachment_browser").options) == 1
+    app.text_input(key="sf_attachment_filter").set_value("not-a-document")
+    app.run(timeout=30)
+    assert not app.exception
+    assert not app.radio
+    assert not app.get("download_button")
+    assert any("No documents match" in info.value for info in app.info)
+    app.text_input(key="sf_attachment_search").set_value("research report")
+    next(button for button in app.button if button.label == "Search").click()
+    app.run(timeout=30)
+    assert not app.exception
+    assert any("research report" in text.value for text in app.text)
+    app.text_input(key="sf_attachment_filter").set_value("")
+    app.run(timeout=30)
+    assert not app.exception
+    assert len(app.radio(key="sf_attachment_browser").options) == 1
+
+
+def test_same_filename_and_subject_have_unique_serialized_choices_across_reruns(tmp_path, monkeypatch):
+    path = tmp_path / "records.sqlite3"
+    monkeypatch.setenv("ATTACHMENTS_TEST_DB", str(path))
+    first = sample_mail()
+    second = {**first, "id": "message-2", "gmail_account": "another@example.test"}
+    library = AttachmentLibrary(path)
+    first_id = library.save_for_message(first)[0]
+    second_id = library.save_for_message(second)[0]
+    app = AppTest.from_string(APP).run(timeout=30)
+    assert not app.exception
+    options = app.radio(key="sf_attachment_browser").options
+    assert options == [
+        "1. Assignment.docx · Course assignment",
+        "2. Assignment.docx · Course assignment",
+    ]
+    for identifier in (second_id, first_id, second_id):
+        app.radio(key="sf_attachment_browser").set_value(identifier)
+        app.run(timeout=30)
+        assert not app.exception
+        assert app.radio(key="sf_attachment_browser").value == identifier
+        assert app.get("download_button")[0].key == f"attachment_download_{identifier}"
+        app.run(timeout=30)
+        assert not app.exception
+        assert app.radio(key="sf_attachment_browser").value == identifier

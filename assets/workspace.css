@@ -704,3 +704,65 @@
   .st-key-sf_app_tab [data-testid="stRadioOption"] { min-height: 2.5rem; padding-top: 0.4rem; padding-bottom: 0.4rem; }
   .sf-sidebar-footer { padding-top: 0.75rem; }
 }
+
+/* Library, settings and reviewed actions complete the shared workspace. */
+.st-key-sf_attachment_browser [data-testid="stRadioGroup"] { gap: 0.45rem; }
+.st-key-sf_attachment_browser [data-testid="stRadioOption"] {
+  align-items: flex-start; padding: 0.8rem; border: 1px solid #e8ecf3;
+  border-radius: 0.6rem; background: #fff;
+}
+.st-key-sf_attachment_browser [data-testid="stRadioOption"] > div > div:first-child { display: none; }
+.st-key-sf_attachment_browser [data-testid="stRadioOption"] p {
+  white-space: normal; overflow-wrap: anywhere; font-size: 0.85rem; line-height: 1.6;
+}
+.st-key-sf_attachment_browser [data-testid="stRadioOption"][data-selected] {
+  background: var(--sf-accent-soft); border-color: #d4dcef;
+}
+.st-key-sf_attachment_browser [data-testid="stRadioOption"][data-selected] p { color: var(--sf-accent); font-weight: 600; }
+.st-key-sf_attachment_browser [data-testid="stRadioOption"][data-focus-visible] {
+  outline: 2px solid var(--sf-accent); outline-offset: 1px;
+}
+.st-key-sf_attachment_title [data-testid="stText"] {
+  font: 650 1.25rem/1.45 var(--sf-font); color: var(--sf-ink); overflow-wrap: anywhere;
+}
+.st-key-sf_attachment_text {
+  background: #f8f9fc; border-radius: 0.55rem; padding: 1rem;
+}
+.st-key-sf_attachment_text [data-testid="stText"],
+[class*="st-key-sf_attachment_search_hit_"] [data-testid="stText"],
+.st-key-sf_panel_settings_connection [data-testid="stText"],
+[class*="st-key-sf_panel_reply_preview_"] [data-testid="stText"] {
+  font: 0.9rem/1.75 var(--sf-font); color: var(--sf-ink);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.st-key-sf_panel_settings_configuration [data-testid="stForm"] { background: #fafbfe; }
+.sf-action-step {
+  margin: 0.5rem 0 0.4rem; color: #58698b; font-size: 0.8rem; font-weight: 650;
+}
+.sf-review-meta {
+  display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: 0.5rem 0.8rem;
+  margin: 0.6rem 0 0; font-size: 0.85rem; line-height: 1.6;
+}
+.sf-review-meta dt { color: var(--sf-muted); font-weight: 500; }
+.sf-review-meta dd { margin: 0; color: var(--sf-ink); overflow-wrap: anywhere; }
+[data-testid="stForm"]:has([class*="st-key-sf_fixed_event_confirmation_"]) {
+  container-type: inline-size; container-name: sf-event-editor;
+}
+@container sf-event-editor (max-width: 420px) {
+  [data-testid="stHorizontalBlock"] { flex-direction: column; }
+  [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    width: 100%; flex: 1 1 auto;
+  }
+}
+[class*="st-key-sf_panel_daily_"] [data-testid="stMetric"] { background: #f6f7fb; border-color: #edf0f5; padding: 0.8rem; }
+[class*="st-key-sf_panel_daily_"] [data-testid="stMetricValue"] { font-size: 1.5rem; }
+[class*="st-key-sf_panel_"] [data-testid="stButton"] button [data-testid="stMarkdownContainer"],
+[class*="st-key-sf_panel_"] [data-testid="stButton"] button p,
+[class*="st-key-sf_panel_"] [data-testid="stFormSubmitButton"] button [data-testid="stMarkdownContainer"],
+[class*="st-key-sf_panel_"] [data-testid="stFormSubmitButton"] button p {
+  white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.45;
+}
+@media (max-width: 1100px) {
+  [class*="st-key-sf_panel_attachments_"], [class*="st-key-sf_panel_settings_"],
+  [class*="st-key-sf_panel_daily_"] { padding: 1rem; }
+}

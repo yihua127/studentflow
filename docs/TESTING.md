@@ -1,5 +1,11 @@
 # Validation status
 
+## Library, settings and reviewed-action panels — 5 November 2026
+
+The combined affected offline regression passed **108 tests** covering attachment retention/search/download/deletion, settings persistence and key redaction, daily progress, fixed-event review/edit/removal, reviewed Gmail sending and Calendar sync, plus application and assistant integration. A subsequent **17-test attachment regression** also passed after adding a same-filename/same-subject selection case. These runs overlap; their counts are not additive. All changed Python files passed Ruff and the whitespace check.
+
+Browser checks used isolated local fixtures and simulated services at 1536×1000 and 1100×800. The library, settings, daily check-in, event editor, send review and Calendar preview rendered without application errors or document-level horizontal overflow; original-file download was verified. The fixed-event editor was also checked at its narrower Study Plan column width and stacks its fields to keep full dates visible. No real messages were sent, calendars changed or paid model requests made during this UI verification.
+
 ## Discussions and Assistant workspaces — 5 November 2026
 
 **120 affected offline regression tests passed**, covering workspace isolation, source selection and reply handoff, saved preferences, edited drafts, consent and stale-result invalidation, reviewed sending and study-time updates, structured minutes and downloads, Google connection/account changes, calendar coverage and application navigation. Ruff and whitespace checks passed.

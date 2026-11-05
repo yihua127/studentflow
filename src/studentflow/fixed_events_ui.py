@@ -90,6 +90,7 @@ def render_fixed_event_review(
     if not events:
         st.info("No fixed appointments were found in the selected sources.")
         return
+    st.html('<div class="sf-eyebrow">CHECK &amp; CONFIRM</div>')
     st.markdown("**Review fixed events**")
     st.caption("Check the source text and enter the exact start and end in Singapore time. "
                "Incomplete suggestions are not saved or used to block study time. "
@@ -105,7 +106,10 @@ def render_fixed_event_review(
                                   "Travel each way (min)", min_value=0, max_value=240, step=5),
                           })
     reviewed = st.checkbox("I have checked the event dates, times and supporting text.", key=key + "_reviewed")
-    if st.button("Save selected fixed events", key=key + "_save", disabled=not reviewed):
+    if st.button(
+        "Save selected fixed events", key=key + "_save", disabled=not reviewed,
+        type="primary", width="stretch",
+    ):
         try:
             if not reviewed:
                 raise ValueError("Review and confirm the event details before saving.")
@@ -148,7 +152,7 @@ def render_fixed_event_extraction(
     key = "batch_fixed_events_" + signature
     consent = st.checkbox("Allow these selected messages and readable attachments to be sent to OpenAI "
                           "to suggest fixed events. Usage charges may apply.", key=key + "_consent")
-    if st.button("Extract fixed events", key=key + "_extract",
+    if st.button("Extract fixed events", key=key + "_extract", type="primary",
                  disabled=not (ready and api_key and model and consent)):
         if not (ready and api_key and model and consent):
             st.warning("Connect AI and allow analysis of the selected sources first.")
@@ -183,6 +187,7 @@ def render_fixed_events(store: Store, *, account: str) -> None:
     if not events:
         st.caption("No fixed events saved. Extract and review appointments from Inbox or Assistant.")
         return
+    st.caption(f"{len(events)} saved commitment(s) · Times shown in Singapore time")
     st.dataframe([{ "Event": event["title"], "Start": _local_time(event["start_at"]),
                    "End": _local_time(event["end_at"]), "Location": event.get("location") or "",
                    "Travel each way (min)": event.get("travel_minutes", 0)} for event in events],
@@ -197,27 +202,41 @@ def render_fixed_events(store: Store, *, account: str) -> None:
         event = next(event for event in events if event["id"] == chosen)
         key = "sf_fixed_event_" + chosen + "_" + str(event.get("updated_at"))
         with st.form(key + "_edit"):
+            st.html('<div class="sf-eyebrow">EVENT DETAILS</div>')
             title = st.text_input("Event title", value=event["title"])
-            kind = st.selectbox("Event type", sorted(KINDS), index=sorted(KINDS).index(event["kind"]))
-            start = st.text_input("Start (Singapore)", value=_local_time(event["start_at"]))
-            end = st.text_input("End (Singapore)", value=_local_time(event["end_at"]))
-            location = st.text_input("Location", value=event.get("location") or "")
-            in_person = st.checkbox("In person", value=bool(event.get("in_person")))
-            travel = st.number_input("Travel each way (min)", min_value=0, max_value=240,
-                                     value=event.get("travel_minutes", 0), step=5)
-            reviewed = st.checkbox("I have reviewed these event details.")
-            if st.form_submit_button("Save event changes"):
-                try:
-                    if not reviewed:
-                        raise ValueError("Review and confirm the event details before saving.")
-                    store.update_fixed_event(chosen, {
-                        "title": title, "kind": kind, "start_at": parse_event_time(start),
-                        "end_at": parse_event_time(end), "location": location,
-                        "in_person": in_person, "travel_minutes": int(travel),
-                    }, account=account)
-                    st.rerun()
-                except ValueError as exc:
-                    st.error(str(exc))
+            detail_left, detail_right = st.columns(2, gap="small")
+            with detail_left:
+                kind = st.selectbox("Event type", sorted(KINDS), index=sorted(KINDS).index(event["kind"]))
+            timing_left, timing_right = st.columns(2, gap="small")
+            with timing_left:
+                start = st.text_input("Start (Singapore)", value=_local_time(event["start_at"]))
+            with timing_right:
+                end = st.text_input("End (Singapore)", value=_local_time(event["end_at"]))
+            with detail_right:
+                location = st.text_input("Location", value=event.get("location") or "")
+            travel_left, travel_right = st.columns(2, gap="small", vertical_alignment="center")
+            with travel_left:
+                in_person = st.checkbox("In person", value=bool(event.get("in_person")))
+            with travel_right:
+                travel = st.number_input("Travel each way (min)", min_value=0, max_value=240,
+                                         value=event.get("travel_minutes", 0), step=5)
+            st.divider()
+            with st.container(key="sf_fixed_event_confirmation_" + chosen):
+                reviewed = st.checkbox("I have reviewed these event details.")
+                if st.form_submit_button("Save event changes", type="primary", width="stretch"):
+                    try:
+                        if not reviewed:
+                            raise ValueError("Review and confirm the event details before saving.")
+                        store.update_fixed_event(chosen, {
+                            "title": title, "kind": kind, "start_at": parse_event_time(start),
+                            "end_at": parse_event_time(end), "location": location,
+                            "in_person": in_person, "travel_minutes": int(travel),
+                        }, account=account)
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+        st.divider()
+        st.markdown("**Remove event**")
         remove = st.checkbox("Remove this fixed event from StudentFlow.", key=key + "_remove_check")
         if st.button("Remove fixed event", key=key + "_remove", disabled=not remove):
             store.delete_fixed_event(chosen, account=account)
