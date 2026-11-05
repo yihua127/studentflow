@@ -27,6 +27,7 @@ from studentflow.extraction import evidence_text, message_documents
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.inbox_triage_ui import clear_triage_state, render_inbox_triage
 from studentflow.inbox_workspace import clear_workspace, render_mail_body, render_mail_list
+from studentflow.overview_ui import render_overview_schedule, unfinished_tasks
 from studentflow.planning_ui import preserve_planning_inputs, render_planner
 from studentflow.storage import Store
 from studentflow.tasks_ui import preserve_task_inputs, render_tasks
@@ -476,15 +477,15 @@ def render_overview(store, data_dir):
     st.title("A clearer day starts here.")
     st.caption("Keep track of what matters, then pick up where you left off.")
     tasks = store.tasks()
-    unfinished = [task for task in tasks if task.get("estimated_minutes") is None
-                  or (task.get("completed_minutes") or 0) < (task.get("estimated_minutes") or 0)]
+    unfinished = unfinished_tasks(tasks)
     remaining = sum(max(0, (task.get("estimated_minutes") or 0) - (task.get("completed_minutes") or 0)) for task in unfinished)
     columns = st.columns(3)
     for column, label, value in zip(columns, ["Open tasks", "Study time remaining", "Needs details"],
                                     [str(len(unfinished)), f"{remaining // 60}h {remaining % 60}m",
-                                     str(sum(task.get("status") == "pending" for task in unfinished))], strict=True):
+                                     str(sum(task.get("status") != "confirmed" for task in unfinished))], strict=True):
         with column:
             st.metric(label, value)
+    render_overview_schedule(store, data_dir)
     st.subheader("Pick up your work")
     left, middle, right = st.columns(3)
     for column, title, description, destination in (

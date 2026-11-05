@@ -2,6 +2,12 @@
 
 Use the left sidebar to move between **Overview**, **Inbox**, **Tasks**, **Study plan**, **Discussions**, **Assistant**, **Attachments** and **Settings**. Overview shows remaining work and daily progress check-ins. Discussions opens the meeting workspace directly; Assistant retains all three assistance modes.
 
+## Overview
+
+The calendar on the left shows saved study sessions, fixed events, manual commitments and unfinished task deadlines in Singapore time. Use the arrows to change months, **Today** to return to the current date, and a date to see its saved items. Marked dates contain one or more items. This view reads local saved data; it does not fetch or write Google Calendar.
+
+**To do** on the right lists unfinished tasks with earlier deadlines first. Filter by **All open**, **Due today** or **Needs details**, then click a task to open its details and progress in Tasks. Opening a task does not mark it complete. Workspace shortcuts and daily progress remain below the calendar and task list.
+
 ## Inbox (Gmail)
 
 Connect Gmail once on your device. StudentFlow restores the saved connection when you reopen the window or restart the app, and shows **Gmail connected**. Select **Switch account** to use another account or **Disconnect Gmail** to sign out of this device.

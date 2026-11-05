@@ -124,10 +124,10 @@
 
 .sf-nav-heading { padding: 0 0.9rem 0.6rem; }
 
-/* One radio owns every route. Its final Settings item settles near the bottom. */
+/* Keep settings and the account visible alongside the workspace routes. */
 .st-key-sf_app_tab [role="radiogroup"] {
   gap: 0.3rem;
-  min-height: calc(100dvh - 16.5rem);
+  min-height: 0;
   align-items: stretch;
 }
 
@@ -173,7 +173,7 @@
 }
 
 .st-key-sf_app_tab [role="radiogroup"] > div:last-child {
-  margin-top: auto;
+  margin-top: 0.55rem;
 }
 
 .sf-sidebar-footer {
@@ -447,7 +447,7 @@
   [data-testid="stMain"] h1, .sf-page-title { font-size: 1.7rem; }
   [data-testid="stMetric"] { padding: 0.8rem 1rem; }
   .st-key-sf_app_tab [role="radiogroup"] { min-height: 0; }
-  .st-key-sf_app_tab [role="radiogroup"] > div:last-child { margin-top: 1rem; }
+  .st-key-sf_app_tab [role="radiogroup"] > div:last-child { margin-top: 0.45rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -569,4 +569,80 @@
 @media (max-width: 640px) {
   .st-key-sf_plan_tabs [role="tablist"] { gap: 0.65rem; }
   .st-key-sf_plan_tabs [role="tab"] p { font-size: 0.78rem; }
+}
+
+/* Overview: a compact month and the work that needs attention. */
+.st-key-sf_panel_overview_calendar,
+.st-key-sf_panel_overview_todos { min-height: 510px; }
+.sf-cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  text-align: center;
+  color: #7b879b;
+  font-size: 0.72rem;
+  font-weight: 550;
+  padding: 0.25rem 0;
+}
+.st-key-sf_cal_toolbar [data-testid="stHorizontalBlock"] { gap: 0.35rem; align-items: center; }
+.st-key-sf_cal_toolbar [data-testid="stButton"] button { padding: 0.3rem 0.6rem; min-height: 2.15rem; }
+/* Keep the month arrows' descriptive names available to screen readers. */
+.st-key-sf_cal_previous button p,
+.st-key-sf_cal_next button p {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.st-key-sf_cal_grid,
+.st-key-sf_cal_grid [data-testid="stVerticalBlock"] { gap: 0.3rem; }
+.st-key-sf_cal_grid [data-testid="stHorizontalBlock"] { gap: 0.3rem; flex-wrap: nowrap; }
+.st-key-sf_cal_grid [data-testid="stColumn"] { min-width: 0; }
+.st-key-sf_cal_grid [data-testid="stButton"] button {
+  width: 100%;
+  min-height: 2.3rem;
+  padding: 0.25rem 0;
+  border-radius: 0.55rem;
+}
+.st-key-sf_cal_grid [data-testid="stButton"] button[kind="secondary"] { border-color: transparent; background: transparent; }
+.st-key-sf_cal_grid [data-testid="stButton"] button[kind="secondary"]:hover { background: var(--sf-accent-soft); }
+.st-key-sf_cal_grid [data-testid="stButton"] button:disabled { color: #a9b1bf; opacity: 0.7; }
+[class*="st-key-sf_cal_today_"] [data-testid="stButton"] button { border: 1px solid #a8b3d9 !important; }
+.sf-cal-event {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid #eef0f5;
+}
+.sf-cal-event:last-child { border-bottom: 0; }
+.sf-cal-event-time { font-size: 0.78rem; line-height: 1.6; color: #65738a; }
+.sf-cal-event-body { min-width: 0; border-left: 3px solid #8e9ed8; padding-left: 0.75rem; }
+.sf-cal-event-title { color: var(--sf-ink); font-size: 0.85rem; font-weight: 550; line-height: 1.55; overflow-wrap: anywhere; }
+.sf-cal-event-kind { color: var(--sf-muted); font-size: 0.72rem; line-height: 1.6; }
+[class*="st-key-sf_overview_todo_"] { padding: 0.8rem 0.15rem; border-bottom: 1px solid #edf0f5; }
+.st-key-sf_overview_todo_filter { padding: 0; border: 0; }
+[class*="st-key-sf_overview_todo_"] [data-testid="stButton"] button {
+  min-height: 0; padding: 0; border: 0; background: transparent;
+  color: var(--sf-ink); justify-content: flex-start; text-align: left;
+}
+[class*="st-key-sf_overview_todo_"] [data-testid="stButton"] button > div,
+[class*="st-key-sf_overview_todo_"] [data-testid="stButton"] button > div > span {
+  justify-content: flex-start; text-align: left; width: 100%;
+}
+[class*="st-key-sf_overview_todo_"] [data-testid="stButton"] button p { font-size: 0.9rem; font-weight: 600; }
+.sf-todo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.7rem; color: var(--sf-muted); font-size: 0.75rem; }
+.sf-todo-deadline { color: #68758b; font-size: 0.76rem; line-height: 1.65; }
+.sf-todo-overdue { color: #9c6633; }
+.sf-todo-status {
+  display: inline-block; margin-top: 0.5rem; padding: 0.18rem 0.45rem;
+  border-radius: 0.3rem; color: #5d6b95; background: #f0f2fa; font-size: 0.7rem;
+}
+.sf-cal-empty {
+  padding: 1.5rem 0.75rem;
+  text-align: center; color: #6e7b91; font-size: 0.9rem; line-height: 1.8;
+}
+.sf-cal-empty span { color: #8a95a7; font-size: 0.78rem; }
+@media (max-height: 760px) {
+  [data-testid="stSidebarUserContent"] { padding-top: 1rem; }
+  .sf-brand { padding-bottom: 1.1rem; }
+  .st-key-sf_app_tab [data-testid="stRadioOption"] { min-height: 2.5rem; padding-top: 0.4rem; padding-bottom: 0.4rem; }
+  .sf-sidebar-footer { padding-top: 0.75rem; }
 }

@@ -1,5 +1,11 @@
 # Validation status
 
+## Overview calendar and to-do list — 5 November 2026
+
+**30 affected offline regression tests passed**, covering the new calendar and existing application navigation. Calendar checks include timezone conversion, midnight-exclusive multi-day events, unknown deadlines, escaped source titles, date and month selection, and omission of completed tasks. Task shortcuts preserve the selected record and clear unrelated filters without changing saved tasks.
+
+Browser checks at 1536×1000, 1100×800 and 1280×720 confirmed that Settings and the account footer remain visible in the sidebar without scrolling. The calendar, to-do list, month navigation and task-detail shortcut were checked with isolated sample data, with no application errors or document-level horizontal overflow. Ruff and whitespace checks passed; no external services were called.
+
 ## Tasks and study-plan workspaces — 5 November 2026
 
 The redesigned task browser and study-plan sections were checked with **85 passing affected offline regression cases**. Coverage includes task search and selection, editing and progress, retained source evidence and estimate history, deletion, exports, weekly availability and date changes, fixed events, plan validation and saving, Calendar preview and confirmation, daily progress, and sidebar navigation. Ordinary received input values survive navigation; review and deletion approvals are not restored. Unsubmitted browser form edits still need to be saved before leaving the page.
