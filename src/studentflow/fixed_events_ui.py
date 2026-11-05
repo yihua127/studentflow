@@ -78,7 +78,10 @@ def _show_evidence(events: list[dict]) -> None:
                 st.text(source.get("source_quote") or "")
 
 
-def render_fixed_event_review(events: list[dict], store: Store, *, account: str, key: str) -> None:
+def render_fixed_event_review(
+    events: list[dict], store: Store, *, account: str, key: str,
+    initial_rows: list[dict] | None = None,
+) -> None:
     """Reusable proposal review for inbox or assistant; saves only after explicit review."""
     account = normalize_account(account)
     if any(event.get("account") != account for event in events):
@@ -92,7 +95,8 @@ def render_fixed_event_review(events: list[dict], store: Store, *, account: str,
                "Incomplete suggestions are not saved or used to block study time. "
                "Preparation time belongs in Tasks; these times are for attending the event.")
     _show_evidence(events)
-    rows = st.data_editor(event_review_rows(events), hide_index=True, width="stretch",
+    rows = st.data_editor(initial_rows if initial_rows is not None else event_review_rows(events),
+                          hide_index=True, width="stretch",
                           num_rows="fixed", key=key + "_rows",
                           disabled=["Type", "Review notes"],
                           column_config={

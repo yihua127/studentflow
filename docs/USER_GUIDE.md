@@ -1,5 +1,7 @@
 # Using StudentFlow
 
+Use the left sidebar to move between **Overview**, **Inbox**, **Tasks**, **Study plan**, **Discussions**, **Assistant**, **Attachments** and **Settings**. Overview shows remaining work and daily progress check-ins. Discussions opens the meeting workspace directly; Assistant retains all three assistance modes.
+
 ## Inbox (Gmail)
 
 Connect Gmail once on your device. StudentFlow restores the saved connection when you reopen the window or restart the app, and shows **Gmail connected**. Select **Switch account** to use another account or **Disconnect Gmail** to sign out of this device.
@@ -8,18 +10,32 @@ On Windows, double-click the **StudentFlow** desktop shortcut to open the app. A
 
 If startup reports that an application-control policy blocked a file, note the stage and target file shown in the error. A blocked Python launcher requires a trusted signed Python environment. Repair the environment without removing saved tasks, attachments or account settings; keep Windows security controls enabled. An administrator must approve the runtime on a managed device.
 
-In **Message analysis**, refresh the inbox and choose one or more messages. After consent, **Analyze selected messages** automatically opens their text and readable attachments and distinguishes study tasks from fixed appointments. **View selected messages** is optional and lets you read them without AI analysis. AI analysis uses the selected messages' subjects, text, dates and readable attachment text, along with relevant saved task details when checking for duplicates.
+The Inbox has a message list on the left and an email workspace on the right. Search subjects or senders, filter by label, and tick messages for bulk actions. Clicking a subject opens it for reading without AI analysis. The same checked selection is used by **Tasks & events** and **Email categories**. The selected count also shows checked messages outside the current filter.
+
+In **Tasks & events**, after consent, **Analyze selected messages** automatically opens their text and readable attachments and distinguishes study tasks from fixed appointments. **View selected messages** is optional and lets you read them without AI analysis. AI analysis uses the selected messages' subjects, text, dates and readable attachment text, along with relevant saved task details when checking for duplicates. In **Read email**, **Reply to this email** opens the displayed message in Assistant with its source already selected.
 
 If the connection is temporarily unavailable, select **Retry connection**. If Google requires renewed authorization, select **Reconnect Gmail** to sign in again.
 
 The inbox loads up to 20 messages at a time. Select **Load more** to add the next 20 to the list. The loaded count shows how many messages are available to browse. **Refresh inbox** starts a fresh list with the latest messages.
 
-To add a task in **Message review**, select the message or attachment under **Task evidence**, enter a name, a deadline in Singapore time, an estimated study duration and a matching passage from that source. Confirm the review and select **Save task**. **Confirmed** requires a deadline and estimated study time greater than 0 minutes. Tasks with missing details are saved as **Needs details**; complete them in **Tasks**. Saving the same task name from the same message updates that record and preserves recorded study progress.
+To add a task manually, open a message in **Read email** and expand **Add a task manually**. Select the message or attachment under **Task evidence**, enter a name, a deadline in Singapore time, an estimated study duration and a matching passage from that source. Confirm the review and select **Save task**. **Confirmed** requires a deadline and estimated study time greater than 0 minutes. Tasks with missing details are saved as **Needs details**; complete them in **Tasks**. Saving the same task name from the same message updates that record and preserves recorded study progress.
+
+### Classify emails and sync categories
+
+1. Refresh Inbox, choose **Email categories** under **Inbox workflow**, then select messages or **Select all shown**. Classify at most 30 at a time.
+2. Allow the selected email text to be sent to OpenAI and choose **Classify selected messages**. Email attachments are not part of this classification request.
+3. Review **Needs reply**, **Needs action** and **No action needed**. Messages that explicitly request a reply take priority over other actions; the explanation includes both. Incomplete or unreadable results stay unclassified.
+4. In the table, tick **Use** for the rows to keep and click a **Category** cell to edit it. Choose **Save categories on this device** for local persistence. For a clearer single-message editor, choose **Message details**, then change **Primary category** and **Custom labels** in **Edit labels**, and click **Save label changes**. That message is then selected for Gmail preview. User-edited categories and custom labels survive reanalysis of unchanged content.
+5. Optional: **Connect Gmail labels** with the same Inbox account, then **Preview Gmail label changes**. Review the account, messages and exact labels, check the confirmation and choose **Apply Gmail labels**. Successfully synced categories are also saved locally as reviewed. No Gmail labels change merely by classifying or previewing.
+6. The three primary category labels are mutually exclusive per message. Extra custom labels can be combined. Other Gmail labels and read status are preserved. After a partial failure, preview again before retrying. **Disconnect Gmail labels** removes that local connection separately from Inbox reading.
+7. Use **Reply with assistant** or **Find tasks and events** beneath **Message details** to continue with that email without selecting it again.
+
+**Manage labels** lets you rename any category or custom label, and add extra labels. Names are stored per Gmail account. AI keeps the original three classification rules; extra labels are assigned manually. **Filter by label** in the message list can filter either a primary category or a custom label; **Show category results** narrows the review table. On the next confirmed sync, renamed labels are added and their previous names removed only for the selected messages. This does not globally rename labels on every Gmail message. Labels must have unique names, including names previously used for a different label.
 
 ### Analyze tasks and fixed appointments
 
-1. In **Message analysis**, refresh the inbox and use **Load more** to include older messages if needed.
-2. Choose one or more messages under **Messages to analyze**. You do not need to open or classify them first.
+1. In **Inbox**, refresh and use **Load more** to include older messages if needed.
+2. Tick one or more messages in the left list and choose **Tasks & events** on the right. You do not need to open or classify them first.
 3. **Suggest study time when it is not stated** is on by default; turn it off if you want to enter missing durations yourself. Allow the selected messages, readable attachment text and related saved task details to be sent to OpenAI, then select **Analyze selected messages**. The results separate flexible tasks from fixed appointments; a message can produce both.
 4. Review each task and its supporting text. The table separates **Source-stated time (min)** from **AI suggestion (min)** and shows the reasoning and assumptions under **Estimate basis**. Accept or edit the final **Study time (min)**, review names and deadlines, and check **Include** for the tasks to save.
 5. Confirm that the selected tasks, supporting text and study-time estimates have been reviewed, then select **Save selected tasks**. Check the saved tasks in **Tasks**, then open **Study Plan** to generate and review a schedule.

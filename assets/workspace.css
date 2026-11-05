@@ -1,0 +1,455 @@
+/* StudentFlow workspace. Use native component attributes and explicit app keys;
+   never depend on generated Emotion class names. */
+:root {
+  --sf-ink: #1f2b43;
+  --sf-muted: #59677e;
+  --sf-accent: #4656a6;
+  --sf-accent-soft: #eef0fa;
+  --sf-line: #e4e8ef;
+  --sf-surface: #ffffff;
+  --sf-canvas: #f6f7fb;
+  --sf-font: "Segoe UI", Arial, sans-serif;
+}
+
+[data-testid="stApp"],
+[data-testid="stAppViewContainer"],
+[data-testid="stSidebar"],
+[data-testid="stMarkdownContainer"],
+[data-testid="stCaptionContainer"],
+[data-testid="stMain"] h1,
+[data-testid="stMain"] h2,
+[data-testid="stMain"] h3,
+[data-testid="stMain"] input,
+[data-testid="stMain"] textarea,
+[data-testid="stMain"] button {
+  font-family: var(--sf-font);
+}
+
+[data-testid="stAppViewContainer"] {
+  color: var(--sf-ink);
+  background: var(--sf-canvas);
+}
+
+[data-testid="stHeader"] {
+  background: rgba(246, 247, 251, 0.96);
+  border-bottom: 1px solid rgba(228, 232, 239, 0.55);
+}
+
+[data-testid="stMainBlockContainer"] {
+  max-width: 1480px;
+  padding: 3.6rem 2.6rem 3rem;
+}
+
+[data-testid="stMain"] h1 {
+  color: var(--sf-ink);
+  font-size: 2rem;
+  font-weight: 650;
+  letter-spacing: -0.065rem;
+  padding-bottom: 0.35rem;
+}
+
+[data-testid="stMain"] h2 {
+  font-size: 1.4rem;
+  font-weight: 650;
+  letter-spacing: -0.025rem;
+}
+
+[data-testid="stMain"] h3 {
+  font-size: 1.13rem;
+  font-weight: 650;
+  letter-spacing: -0.012rem;
+}
+
+[data-testid="stCaptionContainer"] {
+  color: var(--sf-muted);
+  opacity: 1;
+}
+
+[data-testid="stCaptionContainer"] p {
+  color: var(--sf-muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+[data-testid="stSidebar"] {
+  background: var(--sf-surface);
+  border-right: 1px solid var(--sf-line);
+  min-width: 220px;
+  max-width: 240px;
+  width: 220px;
+}
+
+[data-testid="stSidebarUserContent"] {
+  padding: 1.55rem 1rem 1rem;
+}
+
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+  gap: 0.5rem;
+}
+
+.sf-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.3rem 0.35rem 1.65rem;
+}
+
+.sf-brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.55rem;
+  height: 2.55rem;
+  flex: 0 0 auto;
+  border-radius: 0.8rem;
+  background: #263455;
+  color: #fff;
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.15rem;
+  padding-right: 0.15rem;
+}
+
+.sf-brand-mark span { color: #b4c0ef; }
+.sf-brand-name { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.035rem; }
+.sf-brand-caption { margin-top: 0.1rem; font-size: 0.73rem; color: var(--sf-muted); }
+
+.sf-nav-heading, .sf-eyebrow {
+  color: #7b879b;
+  font-size: 0.67rem;
+  font-weight: 650;
+  letter-spacing: 0.11rem;
+  text-transform: uppercase;
+}
+
+.sf-nav-heading { padding: 0 0.9rem 0.6rem; }
+
+/* One radio owns every route. Its final Settings item settles near the bottom. */
+.st-key-sf_app_tab [role="radiogroup"] {
+  gap: 0.3rem;
+  min-height: calc(100dvh - 16.5rem);
+  align-items: stretch;
+}
+
+.st-key-sf_app_tab [data-testid="stRadioOption"] {
+  width: 100%;
+  min-height: 2.8rem;
+  margin: 0;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  color: #627087;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+/* Only the decorative radio circle is hidden; the native input stays focusable. */
+.st-key-sf_app_tab [data-testid="stRadioOption"] > div > div:first-child {
+  display: none;
+}
+
+.st-key-sf_app_tab [data-testid="stRadioOption"] p {
+  font-size: 0.93rem;
+  font-weight: 500;
+}
+
+.st-key-sf_app_tab [data-testid="stRadioOption"]:hover {
+  color: var(--sf-ink);
+  background: #f6f7fa;
+}
+
+.st-key-sf_app_tab [data-testid="stRadioOption"][data-selected] {
+  color: #3e4f9c;
+  background: var(--sf-accent-soft);
+  border-color: #e4e7f8;
+}
+
+.st-key-sf_app_tab [data-testid="stRadioOption"][data-selected] p {
+  font-weight: 650;
+}
+
+.st-key-sf_app_tab [data-testid="stRadioOption"][data-focus-visible] {
+  outline: 2px solid var(--sf-accent);
+  outline-offset: 2px;
+}
+
+.st-key-sf_app_tab [role="radiogroup"] > div:last-child {
+  margin-top: auto;
+}
+
+.sf-sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.7rem;
+  padding: 1rem 0.45rem 0.2rem;
+  border-top: 1px solid var(--sf-line);
+}
+
+.sf-workspace-avatar {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #edf0f5;
+  color: #64718a;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.sf-sidebar-account { min-width: 0; }
+.sf-sidebar-account strong, .sf-sidebar-account span { display: block; }
+.sf-sidebar-account strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 550;
+}
+.sf-sidebar-account span { margin-top: 0.1rem; font-size: 0.69rem; color: var(--sf-muted); }
+
+/* Apply the explicit panel key to native bordered containers when needed. */
+[data-testid="stMain"] [data-testid="stForm"],
+.st-key-sf_panel,
+[class*="st-key-sf_panel_"] {
+  background: var(--sf-surface);
+  border-color: var(--sf-line);
+  border-radius: 0.8rem;
+}
+
+[data-testid="stMain"] [data-testid="stExpander"] {
+  background: var(--sf-surface);
+  border-radius: 0.7rem;
+}
+
+[data-testid="stExpander"] details { border-color: var(--sf-line); }
+[data-testid="stExpander"] summary { padding: 0.8rem 1rem; }
+[data-testid="stExpander"] summary p { font-weight: 550; font-size: 0.88rem; }
+
+[data-testid="stMetric"] {
+  padding: 1.15rem 1.3rem;
+  background: var(--sf-surface);
+  border: 1px solid var(--sf-line);
+  border-radius: 0.75rem;
+}
+
+[data-testid="stMetricLabel"] { color: var(--sf-muted); }
+[data-testid="stMetricValue"] { font-size: 1.9rem; font-weight: 650; letter-spacing: -0.04rem; }
+
+[data-testid="stButton"] button,
+[data-testid="stFormSubmitButton"] button,
+[data-testid="stDownloadButton"] button,
+[data-testid="stLinkButton"] a {
+  min-height: 2.4rem;
+  border-radius: 0.55rem;
+  font-weight: 550;
+  box-shadow: none;
+}
+
+[data-testid="stButton"] button p,
+[data-testid="stFormSubmitButton"] button p,
+[data-testid="stDownloadButton"] button p,
+[data-testid="stLinkButton"] a p {
+  font-size: 0.86rem;
+}
+
+[data-testid="stButton"] button[kind="secondary"],
+[data-testid="stDownloadButton"] button[kind="secondary"] {
+  background: var(--sf-surface);
+  border-color: #dce1ea;
+  color: #46536b;
+}
+
+[data-testid="stButton"] button[kind="secondary"]:hover:not(:disabled),
+[data-testid="stDownloadButton"] button[kind="secondary"]:hover:not(:disabled) {
+  border-color: #aab4cf;
+  background: #f7f8fc;
+  color: #35477e;
+}
+
+[data-testid="stButton"] button:disabled,
+[data-testid="stDownloadButton"] button:disabled {
+  color: #929aaa;
+  background: #f7f8fa;
+  border-color: #e7eaf0;
+}
+
+[data-testid="stWidgetLabel"] p { font-size: 0.84rem; font-weight: 500; }
+[data-testid="stAlert"] { border-radius: 0.65rem; }
+[data-testid="stAlert"] p { font-size: 0.88rem; }
+[data-testid="stDataFrame"] { border-radius: 0.65rem; overflow: hidden; }
+[data-testid="stDivider"] { border-color: var(--sf-line); }
+
+.sf-page-title { margin: 0.35rem 0; font-size: 2rem; font-weight: 650; letter-spacing: -0.065rem; }
+.sf-page-subtitle, .sf-muted { color: var(--sf-muted); font-size: 0.9rem; line-height: 1.6; }
+.sf-page-subtitle { margin-bottom: 1.2rem; }
+.sf-pill {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.35rem;
+  background: var(--sf-accent-soft);
+  color: #4e5c92;
+  font-size: 0.72rem;
+  font-weight: 550;
+}
+.sf-pill-success { background: #eaf4ef; color: #3b7562; }
+.sf-pill-neutral { background: #f0f2f5; color: #626e80; }
+.sf-pill-warning { background: #fff4df; color: #8b662e; }
+.sf-empty-state {
+  padding: 2.25rem 1.5rem;
+  border: 1px dashed #d9dfea;
+  border-radius: 0.75rem;
+  text-align: center;
+  color: var(--sf-muted);
+  background: #fcfcfe;
+}
+
+/* Gmail browser: compact native rows, with a persistent selection treatment. */
+.st-key-sf_mail_list {
+  background: var(--sf-surface);
+  border-color: var(--sf-line);
+  border-radius: 0.75rem;
+  padding: 0.35rem;
+}
+
+.st-key-sf_mail_list [data-testid="stVerticalBlock"] {
+  gap: 0.25rem;
+}
+
+[class*="st-key-sf_mail_row_"] {
+  padding: 0.75rem 0.7rem;
+  border-bottom: 1px solid #edf0f5;
+  border-radius: 0.45rem;
+}
+
+[class*="st-key-sf_mail_row_"]:hover { background: #fafbfe; }
+[class*="st-key-sf_mail_row_active_"] { background: #eef1fb; }
+[class*="st-key-sf_mail_row_active_"]:hover { background: #e9edfa; }
+
+[class*="st-key-sf_mail_row_"] [data-testid="stHorizontalBlock"] {
+  gap: 0.45rem;
+  align-items: flex-start;
+}
+
+[class*="st-key-sf_mail_row_"] [data-testid="stButton"] button {
+  justify-content: flex-start;
+  text-align: left;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--sf-ink);
+}
+
+[class*="st-key-sf_mail_row_"] [data-testid="stButton"] button p {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  font-weight: 600;
+  text-align: left;
+}
+
+[class*="st-key-sf_mail_row_"] [data-testid="stButton"] button > div,
+[class*="st-key-sf_mail_row_"] [data-testid="stButton"] button > div > span {
+  justify-content: flex-start;
+  text-align: left;
+  width: 100%;
+}
+
+[class*="st-key-sf_mail_row_"] [data-testid="stCheckbox"] {
+  padding-top: 0.1rem;
+}
+
+[class*="st-key-sf_mail_row_"] [data-testid="stCaptionContainer"] {
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+[class*="st-key-sf_mail_row_"] [data-testid="stCaptionContainer"] p {
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.st-key-sf_mail_browser,
+.st-key-sf_mail_workspace {
+  background: var(--sf-surface);
+  border-radius: 0.8rem;
+  border-color: var(--sf-line);
+}
+
+.sf-mail-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid #ebedf3;
+  border-radius: 0.65rem;
+  background: #fdfdff;
+  color: #3b485f;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.sf-mail-labels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+/* Native workflow radio rendered as a compact segmented control. */
+.st-key-sf_inbox_workflow [data-testid="stRadioGroup"] {
+  gap: 0.2rem;
+  padding: 0.25rem;
+  border: 1px solid #e8ebf2;
+  border-radius: 0.6rem;
+  background: #f5f6fa;
+  min-height: 0;
+}
+
+.st-key-sf_inbox_workflow [data-testid="stRadioOption"] {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  color: #5c6980;
+}
+
+.st-key-sf_inbox_workflow [data-testid="stRadioOption"] > div > div:first-child {
+  display: none;
+}
+
+.st-key-sf_inbox_workflow [data-testid="stRadioOption"] p {
+  font-size: 0.79rem;
+  font-weight: 500;
+}
+
+.st-key-sf_inbox_workflow [data-testid="stRadioOption"][data-selected] {
+  background: #fff;
+  color: #3e4f9c;
+  border-color: #e1e5f0;
+  box-shadow: 0 1px 2px rgba(31, 43, 67, 0.04);
+}
+
+.st-key-sf_inbox_workflow [data-testid="stRadioOption"][data-focus-visible] {
+  outline: 2px solid var(--sf-accent);
+  outline-offset: 1px;
+}
+
+@media (max-width: 900px) {
+  [data-testid="stMainBlockContainer"] { padding: 3.4rem 1.3rem 2rem; }
+}
+
+@media (max-width: 640px) {
+  [data-testid="stMainBlockContainer"] { padding: 3.2rem 1rem 1.5rem; }
+  [data-testid="stMain"] h1, .sf-page-title { font-size: 1.7rem; }
+  [data-testid="stMetric"] { padding: 0.8rem 1rem; }
+  .st-key-sf_app_tab [role="radiogroup"] { min-height: 0; }
+  .st-key-sf_app_tab [role="radiogroup"] > div:last-child { margin-top: 1rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .st-key-sf_app_tab [data-testid="stRadioOption"] { transition: none; }
+}

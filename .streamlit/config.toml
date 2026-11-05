@@ -1,2 +1,24 @@
 [server]
 fileWatcherType = "poll"
+
+[theme]
+base = "light"
+primaryColor = "#4656A6"
+backgroundColor = "#F6F7FB"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1F2B43"
+font = "Segoe UI, Arial, sans-serif"
+baseFontSize = 15
+baseRadius = "0.55rem"
+buttonRadius = "0.55rem"
+borderColor = "#E4E8EF"
+showWidgetBorder = true
+showSidebarBorder = true
+headingFontSizes = ["2rem", "1.4rem", "1.13rem"]
+headingFontWeights = [650, 650, 650]
+dataframeHeaderBackgroundColor = "#F5F6FA"
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F7FB"
+textColor = "#1F2B43"

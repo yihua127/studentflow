@@ -72,6 +72,7 @@ def _preserve_workspace_inputs() -> None:
     keys.update("sf_workspace_" + suffix for suffix in (
         "consent", "space", "calendar_selection", "from", "through",
     ))
+    keys.add("sf_assistant_workspace")
     for key in list(st.session_state):
         is_draft = key.startswith(("sf_assistant_subject_", "sf_assistant_body_"))
         is_recipient = key.startswith("sf_reply_send_") and key.endswith("_recipient")
@@ -516,14 +517,17 @@ def _render_artifacts(
             st.info("No cluster matching the selected threshold was found in the selected information.")
 
 
-def render_assistant(store, data_dir: Path, root: Path, mails: dict, api_key: str, model: str) -> None:
+def render_assistant(store, data_dir: Path, root: Path, mails: dict, api_key: str, model: str,
+                     *, workspace_mode: str | None = None) -> None:
     _preserve_workspace_inputs()
     account = preference_account(st.session_state.get("gmail_profile", {}).get("email_address", ""))
     _initialize_reply_preferences(data_dir, account)
-    st.subheader("Assistant")
-    if st.session_state.get("sf_reply_handoff"):
+    st.subheader("Discussions" if workspace_mode == "Meetings & discussions" else "Assistant")
+    if workspace_mode is not None and workspace_mode not in WORKSPACES:
+        raise ValueError("Choose an available assistant workspace.")
+    if workspace_mode is None and st.session_state.get("sf_reply_handoff"):
         st.session_state["sf_assistant_workspace"] = "Email replies"
-    mode = st.radio(
+    mode = workspace_mode or st.radio(
         "Assistant workspace", list(WORKSPACES), horizontal=True, key="sf_assistant_workspace",
     )
     previous_mode = st.session_state.get("sf_assistant_previous_workspace")

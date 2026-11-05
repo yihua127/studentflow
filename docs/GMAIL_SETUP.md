@@ -8,7 +8,7 @@ StudentFlow runs on your computer. It uses Google sign-in with read-only access 
 2. Under **APIs & Services → Library**, find and enable **Gmail API**.
 3. Open **Google Auth Platform → Branding**. Enter **StudentFlow** as the app name, and your email for support and contact details.
 4. Set **Audience** to **External**, keep the app in **Testing**, and add your Gmail address under **Test users**. Add other users who need to connect their own Gmail accounts.
-5. Under **Data Access**, add `https://www.googleapis.com/auth/gmail.readonly` for the inbox. Optional reply sending uses the additional scopes described below.
+5. Under **Data Access**, add `https://www.googleapis.com/auth/gmail.readonly` for the inbox. Optional reply sending and category-label updates use the additional scopes described below.
 6. Under **Clients**, create a **Desktop app** client and download its JSON configuration. Save it as `credentials/gmail_client.json` inside the StudentFlow project. Keep the file out of GitHub.
 
 Creating a Google Cloud project registers StudentFlow for Google sign-in. See Google's [OAuth setup guide](https://developers.google.com/workspace/guides/configure-oauth-consent) and [Gmail desktop quickstart](https://developers.google.com/workspace/gmail/api/quickstart/python).
@@ -33,6 +33,14 @@ Under the same project's **Google Auth Platform → Data Access**, add `https://
 The send-only Gmail scope cannot call the Gmail profile endpoint, so OpenID email identity verifies the sender account. See Google's [Gmail scope reference](https://developers.google.com/workspace/gmail/api/auth/scopes), [profile API permissions](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile), and [OpenID Connect guide](https://developers.google.com/identity/openid-connect/openid-connect). Replies include the original thread and message references and keep the original subject, following Google's [threading requirements](https://developers.google.com/workspace/gmail/api/guides/threads).
 
 After authorization, review the exact recipient and message in StudentFlow, then explicitly press **Send with Gmail**. The model cannot initiate this action. An uncertain send remains blocked locally; check Gmail Sent before attempting further action. To revoke sending permission, remove the app's access in Google account settings. **Disconnect Gmail** only removes the Inbox connection and disables this flow until that inbox is connected again; sending uses its separate saved authorization.
+
+## Enable reviewed category labels
+
+Under the same Google project's **Data Access**, add `https://www.googleapis.com/auth/gmail.modify`. In **Inbox → Email categories**, classify selected messages and choose **Connect Gmail labels** using the same Gmail account as Inbox. This permission is stored separately in `data/auth/gmail_labels_token.json`. Gmail requires this broader scope to change message labels; StudentFlow's label adapter limits message updates to registered StudentFlow category and custom labels.
+
+Tick the rows to sync, edit their categories if needed and select **Preview Gmail label changes**. The preview reads Gmail without creating labels or modifying messages. After reviewing it, check the confirmation and select **Apply Gmail labels**. The default labels are `StudentFlow/Needs reply`, `StudentFlow/Needs action` and `StudentFlow/No action needed`. **Manage labels** supports renaming these labels and creating manual custom labels. **Edit labels** sets one primary category and any extra labels for a message. Confirmed sync adjusts only names registered in this account's StudentFlow label settings, retaining unrelated labels, inbox placement and read status. Renaming migrates the selected messages from the old name to the new name; other messages retain their old labels until explicitly synced.
+
+Changing the selected messages, category or account invalidates the preview. If an update is interrupted, preview again to read the current Gmail state before retrying. **Disconnect Gmail labels** removes only this saved label authorization; Inbox reading and reply sending have separate connections. See Google's [message label update API](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/batchModify) and [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes).
 
 ## Personal data and sign-out
 

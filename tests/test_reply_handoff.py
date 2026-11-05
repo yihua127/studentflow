@@ -185,12 +185,12 @@ def app_fixture(tmp_path, monkeypatch, *, fetch_error=None, initial_state=None):
 
 def test_inbox_reply_opens_selected_message_and_selects_it_without_second_selection(tmp_path, monkeypatch):
     app, calls = app_fixture(tmp_path, monkeypatch)
-    assert app.button(key="batch_reply").disabled
-    app.multiselect(key="batch_selected").set_value(["a"]).run(timeout=30)
-    assert app.multiselect(key="sf_assistant_sources").value == []
+    assert app.button(key="sf_mail_reply").disabled
+    app.checkbox(key="sf_mail_check_a").check().run(timeout=30)
+    assert not any(box.key == "sf_assistant_sources" for box in app.multiselect)
     assert calls == []
-    assert not app.button(key="batch_reply").disabled
-    app.button(key="batch_reply").click().run(timeout=30)
+    assert not app.button(key="sf_mail_reply").disabled
+    app.button(key="sf_mail_reply").click().run(timeout=30)
     assert not app.exception
     assert calls == ["a"]
     assert app.session_state["sf_app_tab"] == "Assistant"
@@ -208,8 +208,8 @@ def test_inbox_reply_switches_meeting_workspace_to_email_without_running_agent(t
         "sf_assistant_workspace": "Meetings & discussions",
         "sf_meeting_request": "Keep this discussion request",
     })
-    app.multiselect(key="batch_selected").set_value(["a"]).run(timeout=30)
-    app.button(key="batch_reply").click().run(timeout=30)
+    app.checkbox(key="sf_mail_check_a").check().run(timeout=30)
+    app.button(key="sf_mail_reply").click().run(timeout=30)
     assert not app.exception
     assert calls == ["a"]
     assert app.session_state["sf_app_tab"] == "Assistant"
@@ -220,26 +220,32 @@ def test_inbox_reply_switches_meeting_workspace_to_email_without_running_agent(t
 
 def test_reply_requires_one_email_and_fetch_failure_does_not_navigate(tmp_path, monkeypatch):
     app, calls = app_fixture(tmp_path, monkeypatch, fetch_error=RuntimeError("private-provider-details"))
-    app.multiselect(key="batch_selected").set_value(["a", "b"]).run(timeout=30)
-    assert app.button(key="batch_reply").disabled
-    app.multiselect(key="batch_selected").set_value(["a"]).run(timeout=30)
-    app.button(key="batch_reply").click().run(timeout=30)
+    app.checkbox(key="sf_mail_check_a").check().run(timeout=30)
+    app.checkbox(key="sf_mail_check_b").check().run(timeout=30)
+    assert app.button(key="sf_mail_reply").disabled
+    app.checkbox(key="sf_mail_check_b").uncheck().run(timeout=30)
+    app.button(key="sf_mail_reply").click().run(timeout=30)
     assert not app.exception
     assert calls == ["a"]
     assert app.session_state["sf_app_tab"] == "Inbox (Gmail)"
-    assert app.multiselect(key="sf_assistant_sources").value == []
+    assert "sf_assistant_sources" not in app.session_state or app.session_state["sf_assistant_sources"] == []
+    assert not any(box.key == "sf_assistant_sources" for box in app.multiselect)
     assert any("could not be opened" in item.value for item in app.error)
     assert all("private-provider-details" not in item.value for item in app.error)
 
 
 def test_disconnect_removes_handoff_sources_and_old_reply(tmp_path, monkeypatch):
     app, _calls = app_fixture(tmp_path, monkeypatch)
-    app.multiselect(key="batch_selected").set_value(["a"]).run(timeout=30)
-    app.button(key="batch_reply").click().run(timeout=30)
+    app.checkbox(key="sf_mail_check_a").check().run(timeout=30)
+    app.button(key="sf_mail_reply").click().run(timeout=30)
     assert app.multiselect(key="sf_assistant_sources").value
+    app.radio(key="sf_app_tab").set_value("Inbox (Gmail)").run(timeout=30)
     app.session_state[HANDOFF_KEY] = {"account": ACCOUNT, "source_id": "old", "mail_id": "old"}
     next(item for item in app.button if item.label == "Disconnect Gmail").click().run(timeout=30)
     assert not app.exception
-    assert app.multiselect(key="sf_assistant_sources").value == []
+    assert "sf_assistant_sources" not in app.session_state
     assert HANDOFF_KEY not in app.session_state
     assert "sf_assistant_result" not in app.session_state
+    app.radio(key="sf_app_tab").set_value("Assistant").run(timeout=30)
+    assert not app.exception
+    assert app.multiselect(key="sf_assistant_sources").value == []

@@ -24,7 +24,7 @@ from studentflow.extraction import (
 )
 from studentflow.extraction_cache import ExtractionCache
 from studentflow.fixed_event_cache import FixedEventCache, analyze_fixed_event_messages
-from studentflow.fixed_events_ui import render_fixed_event_review
+from studentflow.fixed_events_ui import event_review_rows, render_fixed_event_review
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.inbox_agents import run_inbox_agents
 from studentflow.inbox_cache import UNIFIED_VERSION, InboxAnalysisCache, analysis_cache_key
@@ -217,13 +217,9 @@ def run_unified_batch(
             references=references, reconciler=reconcile_tasks,
             reconciliation_cache=reconciliation_cache, opened_messages=opened,
         )
-        effort = {"estimates": {}, "warnings": []}
-        if suggest_effort:
-            rows, sources = review_rows(results, mails)
-            effort = estimate_review_efforts(rows, sources, api_key, model,
-                                            estimator=estimate_task_efforts, cache=effort_cache)
         complete = all("error" not in item and not item.get("partial") for item in results)
-        return {"results": results, "effort": effort, "status": "completed" if complete else "partial"}
+        return {"results": results, "effort": {"estimates": {}, "warnings": []},
+                "status": "completed" if complete else "partial"}
 
     def events():
         if progress:
@@ -240,6 +236,16 @@ def run_unified_batch(
     outcome = run_inbox_agents(tasks, events, api_key, model)
     outcome["cached"] = False
     task_result, event_result = outcome.get("task_result") or {}, outcome.get("event_result") or {}
+    # SDK tool callbacks run inside the Inbox event loop. Estimate at this
+    # synchronous boundary so the effort SDK runner can own its event loop,
+    # while Streamlit progress and review remain on the original script thread.
+    if suggest_effort and task_result.get("results"):
+        if progress:
+            progress(0.9, "Suggesting study time for tasks with missing effort...")
+        rows, sources = review_rows(task_result["results"], mails)
+        task_result["effort"] = estimate_review_efforts(
+            rows, sources, api_key, model, estimator=estimate_task_efforts, cache=effort_cache,
+        )
     task_warnings = [warning for item in task_result.get("results", [])
                      for warning in item.get("result", {}).get("warnings", [])
                      if warning != REVIEW_NOTICE]
@@ -408,6 +414,64 @@ def _review_version(rows: list[dict]) -> int:
     return st.session_state.get("batch_review_version", 0)
 
 
+def preserve_batch_review_inputs() -> None:
+    """Snapshot source-bound editor values before navigation removes the widgets.
+
+    Data-editor widget state cannot be reassigned. Keep ordinary row data instead,
+    and never preserve the separate review approvals or action buttons.
+    """
+    # This analysis option participates in source/result binding. Unlike consent,
+    # it must survive navigation so an unchanged analysis remains reviewable.
+    if "batch_suggest_effort" in st.session_state:
+        st.session_state.batch_suggest_effort = st.session_state.batch_suggest_effort
+    _snapshot_batch_review_inputs()
+    for saved in st.session_state.get("batch_review_inputs", {}).values():
+        if not saved.get("rendered"):
+            saved["hidden"] = True
+        saved["rendered"] = False
+
+
+def _snapshot_batch_review_inputs() -> None:
+    for saved in st.session_state.get("batch_review_inputs", {}).values():
+        changes = st.session_state.get(saved["key"])
+        if not isinstance(changes, dict):
+            continue
+        rows = deepcopy(saved["base"])
+        for index, edited in changes.get("edited_rows", {}).items():
+            try:
+                index = int(index)
+            except (ValueError, TypeError):
+                continue
+            if 0 <= index < len(rows) and isinstance(edited, dict):
+                rows[index].update({field: value for field, value in edited.items()
+                                    if field in saved["editable"]})
+        saved["rows"] = rows
+
+
+def _review_input_rows(
+    slot: str, key: str, rows: list[dict], editable: list[str],
+) -> tuple[list[dict], str]:
+    """Restore reviewed values only for the identical source rows and analysis run."""
+    snapshots = st.session_state.setdefault("batch_review_inputs", {})
+    identity = hashlib.sha256(json.dumps([key, rows], sort_keys=True).encode()).hexdigest()
+    saved = snapshots.get(slot)
+    if saved is None or saved["identity"] != identity:
+        saved = {"identity": identity, "key": key, "editable": editable, "generation": 0,
+                 "base": deepcopy(rows), "rows": deepcopy(rows)}
+        snapshots[slot] = saved
+    elif saved.pop("hidden", False):
+        # Streamlit removed this editor on another page. Recreate its input from
+        # the snapshot instead of assigning the forbidden editor widget state.
+        saved["base"] = deepcopy(saved["rows"])
+        saved["generation"] += 1
+        stem, suffix = (key.removesuffix("_rows"), "_rows") if slot == "events" else (key, "")
+        saved["key"] = f"{stem}_resume_{saved['generation']}{suffix}"
+    elif saved["key"] not in st.session_state:
+        saved["base"] = deepcopy(saved["rows"])
+    saved["rendered"] = True
+    return deepcopy(saved["base"]), saved["key"]
+
+
 def _select_messages(identifiers):
     st.session_state.batch_selected = identifiers
     st.session_state.batch_consent = False
@@ -435,9 +499,10 @@ def _authentication_failed():
 
 def render_batch_extraction(
     headers: list[dict], credential_path: Path, token_path: Path, store: Store,
-    api_key: str, model: str, ready: bool,
+    api_key: str, model: str, ready: bool, *, selected_ids: list[str] | None = None,
 ) -> None:
-    """Render the shared selection and extraction controls inside the inbox section."""
+    """Render extraction, optionally using Gmail IDs from the shared inbox picker."""
+    _snapshot_batch_review_inputs()
     if not headers:
         st.info("Refresh the inbox to choose messages.")
         return
@@ -445,19 +510,25 @@ def render_batch_extraction(
                "Messages and readable attachments open automatically; review both kinds before saving.")
     by_id = {header["id"]: header for header in headers}
     identifiers = list(by_id)
-    old_selection = st.session_state.get("batch_selected", [])
-    if any(identifier not in by_id for identifier in old_selection):
-        _select_messages([identifier for identifier in old_selection if identifier in by_id])
-    selected = st.multiselect(
-        "Messages to analyze", identifiers,
-        format_func=lambda identifier: f"{by_id[identifier]['subject'] or 'Untitled message'} — {by_id[identifier].get('sender', '')}",
-        key="batch_selected", on_change=_selection_changed,
-    )
-    left, right = st.columns(2)
-    left.button("Select all loaded", key="batch_all", disabled=not identifiers,
-                on_click=_select_messages, args=(identifiers,), width="stretch")
-    right.button("Clear selection", key="batch_clear", disabled=not selected,
-                 on_click=_select_messages, args=([],), width="stretch")
+    if selected_ids is None:
+        old_selection = st.session_state.get("batch_selected", [])
+        if any(identifier not in by_id for identifier in old_selection):
+            _select_messages([identifier for identifier in old_selection if identifier in by_id])
+        selected = st.multiselect(
+            "Messages to analyze", identifiers,
+            format_func=lambda identifier: f"{by_id[identifier]['subject'] or 'Untitled message'} — {by_id[identifier].get('sender', '')}",
+            key="batch_selected", on_change=_selection_changed,
+        )
+        left, right = st.columns(2)
+        left.button("Select all loaded", key="batch_all", disabled=not identifiers,
+                    on_click=_select_messages, args=(identifiers,), width="stretch")
+        right.button("Clear selection", key="batch_clear", disabled=not selected,
+                     on_click=_select_messages, args=([],), width="stretch")
+    else:
+        selected = list(dict.fromkeys(identifier for identifier in selected_ids if identifier in by_id))
+        if st.session_state.get("batch_external_selection") != selected:
+            _selection_changed()
+            st.session_state.batch_external_selection = selected
     st.caption(f"{len(selected)} message(s) selected.")
     if st.button("Reply with assistant", key="batch_reply", disabled=not (ready and len(selected) == 1)):
         with st.spinner("Opening the selected email for your reply..."):
@@ -494,7 +565,8 @@ def render_batch_extraction(
                 if successful:
                     st.session_state.active_mail = successful[0]["mail_id"]
                     st.session_state.pop("review_message", None)
-                    st.success(f"{len(successful)} message(s) ready in Message review below.")
+                    destination = "Message review" if selected_ids is None else "Opened message text"
+                    st.success(f"{len(successful)} message(s) ready in {destination} below.")
                 for entry in opened:
                     if "error" in entry:
                         name = by_id[entry["gmail_id"]].get("subject") or "Message"
@@ -621,9 +693,15 @@ def render_batch_extraction(
         if not fixed_result.get("complete"):
             st.info("Fixed-event analysis is incomplete. Analyze selected messages again to retry.")
         if fixed_events:
+            key = f"batch_unified_fixed_{signature}_{st.session_state.get('batch_review_version', 0)}"
+            initial_rows, editor_key = _review_input_rows(
+                "events", key + "_rows", event_review_rows(fixed_events),
+                ["Include", "Event", "Start (Singapore)", "End (Singapore)", "Location",
+                 "In person", "Travel each way (min)"],
+            )
             render_fixed_event_review(
                 fixed_events, store, account=account,
-                key=f"batch_unified_fixed_{signature}_{st.session_state.get('batch_review_version', 0)}",
+                key=editor_key.removesuffix("_rows"), initial_rows=initial_rows,
             )
         elif fixed_result.get("complete"):
             st.caption("No fixed appointments found in these messages.")
@@ -662,9 +740,14 @@ def render_batch_extraction(
     st.caption("Confirmed requires a deadline and estimated study time greater than 0. Otherwise the task is saved as Needs details; you can complete or edit it on the Tasks page.")
     st.caption("AI suggestions are estimates of total active work time, not facts from the source. Review the basis, edit Study time (min), or set it to 0 to leave it unknown. Only the value you confirm and save is used for scheduling.")
     version = _review_version(rows)
-    with st.form(f"batch_review_form_{version}"):
+    input_rows, editor_key = _review_input_rows(
+        "tasks", f"batch_editor_{version}", rows,
+        ["Include", "Task", "Deadline", "Study time (min)", "Supporting text"],
+    )
+    review_identity = editor_key.removeprefix("batch_editor_")
+    with st.form(f"batch_review_form_{review_identity}"):
         edited = st.data_editor(
-            rows, hide_index=True, num_rows="fixed", width="stretch",
+            input_rows, hide_index=True, num_rows="fixed", width="stretch",
             column_order=["Include", "Task", "Deadline", "Study time (min)",
                           "AI suggestion (min)", "Estimate basis", "Source-stated time (min)",
                           "Supporting text", "Source message", "Source file", "Review notes"],
@@ -681,10 +764,10 @@ def render_batch_extraction(
                 "Estimate basis": st.column_config.TextColumn(width="large"),
                 "Supporting text": st.column_config.TextColumn(width="large"),
                 "Review notes": st.column_config.TextColumn(width="large"),
-            }, key=f"batch_editor_{version}",
+            }, key=editor_key,
         )
         reviewed = st.checkbox(
-            "I have reviewed the selected tasks, supporting text and study-time estimates.", key=f"batch_reviewed_{version}",
+            "I have reviewed the selected tasks, supporting text and study-time estimates.", key=f"batch_reviewed_{review_identity}",
         )
         if st.form_submit_button("Save selected tasks", type="primary"):
             try:

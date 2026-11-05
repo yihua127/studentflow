@@ -4,10 +4,11 @@ Turn email and discussions into a clear study plan.
 
 StudentFlow is a local productivity application for students. It connects to Gmail, Google Chat and Google Calendar to help organize tasks, plan study time, draft replies and summarize discussions.
 
-The interface is in English. Original messages, quotations and user-entered content retain their source language.
+The interface is in English. Original messages, quotations and user-entered content retain their source language. A sidebar connects the workspaces; Inbox pairs a searchable, multi-select message list with reading, task extraction and category review. Discussions also has a direct sidebar entry.
 
 ## Features
 
+- **Email categories and labels:** classify selected emails as Needs reply, Needs action or No action needed. Review evidence and correct categories, rename labels or add custom labels, then optionally preview and confirm Gmail updates.
 - **Email to tasks:** identify flexible study tasks and fixed appointments from selected emails and readable PDF or Word attachments. Review deadlines, supporting text and suggested study time before saving.
 - **Study planning:** plan around weekly availability, date exceptions, meals, breaks and fixed commitments. Track completed work and replan remaining tasks.
 - **Calendar sync:** preview and sync saved study sessions and confirmed appointments to a dedicated StudentFlow calendar.
@@ -35,7 +36,7 @@ Open http://localhost:8501.
 
 1. Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to configure Google access and save the OAuth client file as `credentials/gmail_client.json`.
 2. Open **Settings** to save your OpenAI API key, choose a model and test the connection. See [OpenAI setup](docs/OPENAI_SETUP.md).
-3. Connect Gmail from **Inbox (Gmail)**. Connect Google Chat or Calendar when you use those features; sending replies and syncing Calendar require separate authorization.
+3. Connect Gmail from **Inbox (Gmail)**. Connect Google Chat or Calendar when you use those features; sending replies, syncing Calendar and updating Gmail labels require separate authorization.
 
 Each user configures and authorizes their own accounts on their computer.
 
@@ -61,7 +62,15 @@ Use **Google Calendar sync** to preview changes before applying them. Sync is ma
 
 ### Draft email replies
 
-Select a message in Inbox and choose **Reply with assistant**. In **Assistant → Email replies**, optionally provide a writing sample and save your reply preferences. Review and edit the subject and message, then download the draft. To send it, verify the recipient under **Send with Gmail** and explicitly confirm.
+Open a message in **Inbox → Read email** and choose **Reply to this email**, or use **Reply with assistant** from task/category review. In **Assistant → Email replies**, optionally provide a writing sample and save your reply preferences. Review and edit the subject and message, then download the draft. To send it, verify the recipient under **Send with Gmail** and explicitly confirm.
+
+### Classify email
+
+In **Inbox → Email categories**, select up to 30 loaded messages and allow classification. Review the suggested categories and supporting quotations, edit any category and save locally. Use **Filter by label** to filter the inbox list and **Show category results** to narrow the review table. **Needs reply** takes priority when a message also requests another action; the explanation preserves that action. **No action needed** means informational mail, not deletion or spam.
+
+Use **Manage labels** to rename the three categories or create additional labels such as Coursework or Urgent. Under **Message details → Edit labels**, choose a primary category and any custom labels, then **Save label changes**. Custom labels are selected manually; renaming a category does not change its AI classification rule.
+
+To show labels in Gmail, choose **Connect Gmail labels**, then **Preview Gmail label changes**. Confirm the exact changes and select **Apply Gmail labels**. Only the selected messages' registered `StudentFlow/` labels are adjusted; other labels and read status are preserved. Renamed labels replace their previous names on the selected messages after confirmation; other messages keep their existing labels until synced. Classification uses email text rather than attachments; incomplete results remain unclassified.
 
 ### Summarize meetings and discussions
 
@@ -74,7 +83,7 @@ Email replies and discussions have separate inputs and preferences. **Other assi
 - Account credentials, tasks, preferences, attachments and saved plans are stored locally. They are excluded from this repository.
 - Loading information from Google does not automatically send it to OpenAI. AI processing requires consent for the selected information; task analysis may also use related saved task details for duplicate checks.
 - Generated replies, estimates, tasks and summaries require review. Missing dates, owners and event times may need clarification.
-- Sending email and applying Calendar changes require explicit user confirmation. The assistant does not send messages automatically.
+- Sending email, applying Calendar changes and syncing Gmail labels require explicit user confirmation. The assistant does not send messages automatically.
 - Disconnecting a Google account removes its local sign-in; previously saved tasks remain available.
 
 ## Scope

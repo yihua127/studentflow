@@ -3,12 +3,13 @@
 import re
 from email.message import EmailMessage
 from pathlib import Path
+from types import SimpleNamespace
 
 import dotenv
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from studentflow import batch_ui, gmail
+from studentflow import assistant_ui, batch_ui, gmail
 from studentflow.storage import Store
 
 APP = Path(__file__).resolve().parents[1] / "app.py"
@@ -22,6 +23,32 @@ def checked(app):
     app.run(timeout=30)
     assert not app.exception
     return app
+
+
+def message_ids(app):
+    """Read the selectable inbox rows without confusing consent checkboxes."""
+    prefix = "sf_mail_check_"
+    return [box.key.removeprefix(prefix) for box in app.checkbox if box.key and box.key.startswith(prefix)]
+
+
+def select_messages(app, selected):
+    """Use the same per-message checkboxes as the email workspace."""
+    assert set(selected) <= set(message_ids(app))
+    for message_id in message_ids(app):
+        checkbox = app.checkbox(key="sf_mail_check_" + message_id)
+        if checkbox.value != (message_id in selected):
+            checkbox.set_value(message_id in selected)
+            checked(app)
+
+
+def navigate(app, page):
+    app.radio(key="sf_app_tab").set_value(page)
+    return checked(app)
+
+
+def choose_workflow(app, workflow):
+    app.radio(key="sf_inbox_workflow").set_value(workflow)
+    return checked(app)
 
 
 def isolate(tmp_path, monkeypatch, *, configured=True):
@@ -46,7 +73,7 @@ def interface_text(app):
         values.extend(str(item.value) for item in app.get(element_type))
     for element_type in (
         "button", "checkbox", "selectbox", "multiselect", "text_input", "text_area", "number_input",
-        "date_input", "time_input", "expander", "tab", "download_button", "link_button",
+        "date_input", "time_input", "expander", "tab", "radio", "download_button", "link_button",
     ):
         values.extend(str(item.label) for item in app.get(element_type))
     return "\n".join(values)
@@ -61,14 +88,20 @@ def test_empty_interface_is_english_and_gmail_first(tmp_path, monkeypatch):
     monkeypatch.setattr(gmail, "connect", unexpected_connection)
     monkeypatch.setattr(batch_ui, "connect", unexpected_connection)
     app = checked(AppTest.from_file(str(APP)))
-    assert [tab.label for tab in app.tabs] == ["Inbox (Gmail)", "Tasks", "Study Plan", "Attachments", "Settings", "Assistant"]
+    assert [re.sub(r"^:material/\w+: ", "", label) for label in app.radio(key="sf_app_tab").options] == [
+        "Overview", "Inbox", "Tasks", "Study plan", "Discussions", "Assistant", "Attachments", "Settings",
+    ]
+    assert app.radio(key="sf_app_tab").value == "Inbox (Gmail)"
+    assert not app.tabs
+    assert app.radio(key="sf_inbox_workflow").options == ["Read email", "Tasks & events", "Email categories"]
+    assert app.radio(key="sf_inbox_workflow").value == "Read email"
     assert not app.get("file_uploader")
     assert find(app.button, "Connect Gmail").disabled
     assert find(app.button, "Refresh inbox").disabled
     assert not any(box.label == "Messages per batch" for box in app.selectbox)
-    assert not any(button.label == "View selected messages" for button in app.button)
+    assert all(button.disabled for button in app.button if button.label == "View selected messages")
     assert not any(button.label == "Analyze selected messages" for button in app.button)
-    assert find(app.expander, "Message analysis")
+    assert not any(box.key == "batch_selected" for box in app.multiselect)
     assert not any(box.label == "Choose a message" for box in app.selectbox)
     assert not any(button.label == "Open message" for button in app.button)
     assert not any(item.label == "Batch task extraction" for item in app.expander)
@@ -132,18 +165,20 @@ def test_mail_consent_review_task_save_and_disconnect(tmp_path, monkeypatch):
     checked(app)
     assert ("list", 20, None) in calls
     assert not any(call[0] == "fetch" for call in calls)
-    app.multiselect(key="batch_selected").set_value(["demo123"])
+    select_messages(app, ["demo123"])
     checked(app)
     assert not any(call[0] == "fetch" for call in calls)
-    assert app.checkbox(key="batch_consent").value is False
+    assert not any(box.key == "batch_consent" for box in app.checkbox)
     find(app.button, "View selected messages").click()
     checked(app)
     assert ("fetch", "demo123") in calls
-    assert find(app.text_area, "Message").value.strip() == original_body.strip()
-    assert app.checkbox(key="batch_consent").value is False
+    mail = next(iter(app.session_state["mails"].values()))
+    assert mail["body"].strip() == original_body.strip()
+    reader = next(element.proto.body for element in app.get("html") if 'class="sf-mail-body"' in element.proto.body)
+    assert original_body.strip() in reader
+    assert not any(box.key == "batch_consent" for box in app.checkbox)
     assert not any(item.label.startswith("Allow this message") for item in app.checkbox)
-    assert len([button for button in app.button if button.label == "Analyze selected messages"]) == 1
-    assert find(app.button, "Analyze selected messages").disabled
+    assert not any(button.label == "Analyze selected messages" for button in app.button)
     assert len(app.session_state["mails"]) == 1
 
     # A real task must still be reviewed and supported by its source message.
@@ -161,6 +196,7 @@ def test_mail_consent_review_task_save_and_disconnect(tmp_path, monkeypatch):
     assert any(item.value == "Task saved." for item in app.success)
     tasks = Store(tmp_path / "records" / "studentflow.sqlite3").tasks()
     assert len(tasks) == 1 and tasks[0]["title"] == "Submit report"
+    navigate(app, "Tasks")
     task_table = next(table.value for table in app.dataframe if "Task" in table.value.columns)
     assert list(task_table.columns) == [
         "Task", "Deadline", "Study time (min)", "Status", "Source message",
@@ -171,6 +207,8 @@ def test_mail_consent_review_task_save_and_disconnect(tmp_path, monkeypatch):
     assert task_table.iloc[0]["Remaining (min)"] == 60
     assert task_table.iloc[0]["Progress"] == "Unfinished"
 
+    navigate(app, "Inbox (Gmail)")
+    assert app.session_state["batch_selected"] == ["demo123"]
     fetches_before = [call for call in calls if call[0] == "fetch"]
     find(app.button, "View selected messages").click()
     checked(app)
@@ -244,6 +282,174 @@ def connected_inbox(tmp_path, monkeypatch, pages):
     return app, state
 
 
+def test_sidebar_navigation_only_renders_the_chosen_workspace(tmp_path, monkeypatch):
+    isolate(tmp_path, monkeypatch, configured=False)
+
+    def unexpected_connection(*_args, **_kwargs):
+        raise AssertionError("Changing workspaces must not contact Gmail.")
+
+    monkeypatch.setattr(gmail, "connect", unexpected_connection)
+    monkeypatch.setattr(batch_ui, "connect", unexpected_connection)
+    app = checked(AppTest.from_file(str(APP)))
+    assert app.sidebar.radio(key="sf_app_tab").value == "Inbox (Gmail)"
+    for destination in ("Overview", "Tasks", "Study Plan", "Discussions", "Assistant", "Attachments", "Settings"):
+        navigate(app, destination)
+        assert app.sidebar.radio(key="sf_app_tab").value == destination
+        assert not app.tabs
+        assert not any(button.label == "Refresh inbox" for button in app.button)
+        assert not any(radio.key == "sf_inbox_workflow" for radio in app.radio)
+    navigate(app, "Inbox (Gmail)")
+    assert find(app.button, "Refresh inbox").disabled
+    assert app.radio(key="sf_inbox_workflow").value == "Read email"
+
+
+def test_subject_click_opens_reader_without_changing_multi_selection_or_refetching(tmp_path, monkeypatch):
+    app, state = connected_inbox(tmp_path, monkeypatch, {None: page(message_headers(1, 3))})
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    select_messages(app, ["message001", "message003"])
+    assert not any(call[0] == "fetch" for call in state["calls"])
+
+    app.button(key="sf_mail_open_message002").click()
+    checked(app)
+    assert [call for call in state["calls"] if call[0] == "fetch"] == [("fetch", "message002")]
+    assert app.session_state["batch_selected"] == ["message001", "message003"]
+    opened_id = find(app.selectbox, "Opened messages").value
+    assert app.session_state["mails"][opened_id]["gmail_id"] == "message002"
+    assert any('class="sf-mail-body"' in element.proto.body for element in app.get("html"))
+    assert find(app.expander, "Add a task manually")
+    assert not any(button.label == "Analyze selected messages" for button in app.button)
+
+    app.button(key="sf_mail_open_message002").click()
+    checked(app)
+    assert [call for call in state["calls"] if call[0] == "fetch"] == [("fetch", "message002")]
+    navigate(app, "Tasks")
+    navigate(app, "Inbox (Gmail)")
+    assert app.session_state["batch_selected"] == ["message001", "message003"]
+    assert app.checkbox(key="sf_mail_check_message001").value
+    assert app.checkbox(key="sf_mail_check_message003").value
+    assert find(app.selectbox, "Opened messages").value == opened_id
+
+
+def test_search_preserves_hidden_selection_and_restores_checkbox_state(tmp_path, monkeypatch):
+    app, state = connected_inbox(tmp_path, monkeypatch, {None: page(message_headers(1, 3))})
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    select_messages(app, ["message001", "message003"])
+    app.text_input(key="sf_mail_search").set_value("Message 2")
+    checked(app)
+    assert message_ids(app) == ["message002"]
+    assert app.session_state["batch_selected"] == ["message001", "message003"]
+    assert "2 selected outside this view" in interface_text(app)
+    app.text_input(key="sf_mail_search").set_value("")
+    checked(app)
+    assert app.checkbox(key="sf_mail_check_message001").value
+    assert app.checkbox(key="sf_mail_check_message003").value
+    assert not app.checkbox(key="sf_mail_check_message002").value
+    assert not any(call[0] == "fetch" for call in state["calls"])
+
+
+@pytest.mark.parametrize("checked_message", ["message002", "message001"])
+def test_reader_reply_handoff_uses_displayed_email_and_navigates_to_assistant(tmp_path, monkeypatch, checked_message):
+    from studentflow.assistant_context import source_key
+    from studentflow.reply_preferences import DEFAULT_REPLY_REQUEST
+
+    app, state = connected_inbox(tmp_path, monkeypatch, {None: page(message_headers(1, 3))})
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    select_messages(app, [checked_message])
+    if checked_message != "message002":
+        # Reading B must bind its reply action to B even while A remains checked.
+        app.button(key="sf_mail_open_message002").click()
+        checked(app)
+        displayed_id = find(app.selectbox, "Opened messages").value
+        assert app.session_state["mails"][displayed_id]["gmail_id"] == "message002"
+        assert app.session_state["batch_selected"] == [checked_message]
+    app.button(key="sf_mail_reply").click()
+    checked(app)
+    assert app.radio(key="sf_app_tab").value == "Assistant"
+    assert app.session_state["sf_assistant_workspace"] == "Email replies"
+    mail = next(iter(app.session_state["mails"].values()))
+    assert mail["gmail_id"] == "message002"
+    assert app.multiselect(key="sf_assistant_sources").value == [
+        source_key("gmail", "student@example.com", mail["id"]),
+    ]
+    assert app.text_area(key="sf_assistant_request").value == DEFAULT_REPLY_REQUEST
+    assert not find(app.checkbox, "Send this request and only the selected information to OpenAI.").value
+    assert [call for call in state["calls"] if call[0] == "fetch"] == [("fetch", "message002")]
+    navigate(app, "Inbox (Gmail)")
+    assert app.session_state["batch_selected"] == [checked_message]
+    assert app.checkbox(key="sf_mail_check_" + checked_message).value
+
+
+def test_assistant_request_and_edited_reply_survive_sidebar_navigation(tmp_path, monkeypatch):
+    app, state = connected_inbox(tmp_path, monkeypatch, {None: page(message_headers(1, 2))})
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-local-testing-only")
+    requests = []
+
+    def fake_run(request, toolbox, **_kwargs):
+        requests.append(request)
+        source = next(iter(toolbox._sources.values()))
+        recorded = toolbox.invoke("record_reply_draft", {
+            "source_id": source["source_id"], "subject": "Re: Assignment",
+            "body": "Hello,\nThank you for the report instructions.\nBest regards,\nStudent",
+            "recipient": "teacher@example.com",
+            "citations": [{"source_id": source["source_id"],
+                           "quote": "Please submit the report by October 15 at 17:00."}],
+            "style_source_ids": [],
+        }, role="email")
+        assert recorded["ok"]
+        return SimpleNamespace(answer="Review the draft below.", status="completed",
+                               events=toolbox.events, usage={"model_calls": 1}, artifacts=toolbox.artifacts)
+
+    monkeypatch.setattr(assistant_ui, "run_assistant", fake_run)
+    find(app.button, "Refresh inbox").click()
+    checked(app)
+    select_messages(app, ["message002"])
+    app.button(key="sf_mail_reply").click()
+    checked(app)
+    request = "Draft a brief acknowledgment of the instructions."
+    app.text_area(key="sf_assistant_request").set_value(request)
+    checked(app)
+    find(app.checkbox, "Send this request and only the selected information to OpenAI.").check()
+    checked(app)
+    app.button(key="sf_assistant_run").click()
+    checked(app)
+    result_id = app.session_state["sf_assistant_result"]["id"]
+    subject = "Reviewed report acknowledgment"
+    body = "Hello,\nI have received the instructions.\nBest regards,\nReviewed Student"
+    find(app.text_input, "Draft subject").set_value(subject)
+    find(app.text_area, "Draft message").set_value(body)
+    checked(app)
+
+    navigate(app, "Inbox (Gmail)")
+    assert not any(area.label == "Draft message" for area in app.text_area)
+    checked(app)
+    navigate(app, "Assistant")
+    assert app.text_area(key="sf_assistant_request").value == request
+    assert app.session_state["sf_assistant_result"]["id"] == result_id
+    assert find(app.text_input, "Draft subject").value == subject
+    assert find(app.text_area, "Draft message").value == body
+    assert requests == [request]
+    assert [call for call in state["calls"] if call[0] == "fetch"] == [("fetch", "message002")]
+
+
+def test_assistant_workspace_and_general_request_survive_sidebar_navigation(tmp_path, monkeypatch):
+    isolate(tmp_path, monkeypatch, configured=False)
+    app = checked(AppTest.from_file(str(APP)))
+    navigate(app, "Assistant")
+    app.radio(key="sf_assistant_workspace").set_value("Other assistance")
+    checked(app)
+    request = "Help me organize the questions for my study group."
+    app.text_area(key="sf_general_request").set_value(request)
+    checked(app)
+    navigate(app, "Inbox (Gmail)")
+    checked(app)
+    navigate(app, "Assistant")
+    assert app.radio(key="sf_assistant_workspace").value == "Other assistance"
+    assert app.text_area(key="sf_general_request").value == request
+
+
 def test_load_more_exceeds_twenty_deduplicates_and_preserves_selection(tmp_path, monkeypatch):
     app, state = connected_inbox(tmp_path, monkeypatch, {
         None: page(message_headers(1, 20), "second-page"),
@@ -252,9 +458,9 @@ def test_load_more_exceeds_twenty_deduplicates_and_preserves_selection(tmp_path,
     })
     find(app.button, "Refresh inbox").click()
     checked(app)
-    assert len(app.multiselect(key="batch_selected").options) == 20
+    assert len(message_ids(app)) == 20
     assert ("list", 20, None) in state["calls"]
-    app.multiselect(key="batch_selected").set_value(["message007"])
+    select_messages(app, ["message007"])
     checked(app)
     calls_before = list(state["calls"])
     checked(app)
@@ -262,20 +468,19 @@ def test_load_more_exceeds_twenty_deduplicates_and_preserves_selection(tmp_path,
 
     find(app.button, "Load more").click()
     checked(app)
-    selector = app.multiselect(key="batch_selected")
-    assert len(selector.options) == 39
-    assert selector.value == ["message007"]
+    assert len(message_ids(app)) == 39
+    assert app.session_state["batch_selected"] == ["message007"]
     assert ("list", 20, "second-page") in state["calls"]
     find(app.button, "Load more").click()
     checked(app)
-    assert len(app.multiselect(key="batch_selected").options) == 41
-    assert app.multiselect(key="batch_selected").value == ["message007"]
+    assert len(message_ids(app)) == 41
+    assert app.session_state["batch_selected"] == ["message007"]
     assert ("list", 20, "final-page") in state["calls"]
     assert not any(button.label == "Load more" for button in app.button)
     assert not any(call[0] == "fetch" for call in state["calls"])
 
     # A message outside the first batch can be opened using its stable Gmail ID.
-    app.multiselect(key="batch_selected").set_value(["message041"])
+    select_messages(app, ["message041"])
     checked(app)
     assert not any(call[0] == "fetch" for call in state["calls"])
     find(app.button, "View selected messages").click()
@@ -290,14 +495,14 @@ def test_failed_load_more_can_retry_without_losing_messages_or_cursor(tmp_path, 
     })
     find(app.button, "Refresh inbox").click()
     checked(app)
-    app.multiselect(key="batch_selected").set_value(["message009"])
+    select_messages(app, ["message009"])
     checked(app)
-    options_before = app.multiselect(key="batch_selected").options
+    options_before = message_ids(app)
     find(app.button, "Load more").click()
     checked(app)
     assert any("Try again" in error.value for error in app.error)
-    assert app.multiselect(key="batch_selected").options == options_before
-    assert app.multiselect(key="batch_selected").value == ["message009"]
+    assert message_ids(app) == options_before
+    assert app.session_state["batch_selected"] == ["message009"]
     assert not find(app.button, "Load more").disabled
 
     state["pages"]["retry-page"] = page(message_headers(21, 25))
@@ -307,8 +512,8 @@ def test_failed_load_more_can_retry_without_losing_messages_or_cursor(tmp_path, 
     find(app.button, "Load more").click()
     checked(app)
     assert state["calls"][-1] == ("list", 20, "retry-page")
-    assert len(app.multiselect(key="batch_selected").options) == 25
-    assert app.multiselect(key="batch_selected").value == ["message009"]
+    assert len(message_ids(app)) == 25
+    assert app.session_state["batch_selected"] == ["message009"]
     assert not any(button.label == "Load more" for button in app.button)
     assert not any(call[0] == "fetch" for call in state["calls"])
 
@@ -340,11 +545,11 @@ def test_unified_selection_extracts_one_or_many_and_saves_only_after_review(tmp_
     })
     find(app.button, "Refresh inbox").click()
     checked(app)
-    app.multiselect(key="batch_selected").set_value(selected)
+    select_messages(app, selected)
     checked(app)
     assert extraction_calls == []
     assert not any(call[0] == "fetch" for call in state["calls"])
-    assert find(app.button, "Analyze selected messages").disabled
+    assert not any(button.label == "Analyze selected messages" for button in app.button)
 
     if len(selected) > 1:
         # The same selection can be viewed without model consent or a paid call.
@@ -353,8 +558,12 @@ def test_unified_selection_extracts_one_or_many_and_saves_only_after_review(tmp_
         assert extraction_calls == []
         assert len(app.session_state["mails"]) == len(selected)
         assert len(find(app.selectbox, "Opened messages").options) == len(selected)
-        assert app.checkbox(key="batch_consent").value is False
+        assert not any(box.key == "batch_consent" for box in app.checkbox)
 
+    choose_workflow(app, "Tasks & events")
+    assert app.session_state["batch_selected"] == selected
+    assert app.checkbox(key="batch_consent").value is False
+    assert find(app.button, "Analyze selected messages").disabled
     app.checkbox(key="batch_consent").check()
     checked(app)
     find(app.button, "Analyze selected messages").click()
@@ -400,24 +609,24 @@ def test_refresh_and_reconnect_start_a_new_pagination_sequence(tmp_path, monkeyp
     checked(app)
     find(app.button, "Load more").click()
     checked(app)
-    app.multiselect(key="batch_selected").set_value(["message030"])
+    select_messages(app, ["message030"])
     checked(app)
     state["pages"][None] = page(message_headers(1, 20, prefix="fresh"), "fresh-second")
     state["pages"]["fresh-second"] = page(message_headers(21, 21, prefix="fresh"))
     find(app.button, "Refresh inbox").click()
     checked(app)
     assert state["calls"][-1] == ("list", 20, None)
-    assert len(app.multiselect(key="batch_selected").options) == 20
-    assert app.multiselect(key="batch_selected").value == []
+    assert len(message_ids(app)) == 20
+    assert app.session_state["batch_selected"] == []
     find(app.button, "Load more").click()
     checked(app)
     assert state["calls"][-1] == ("list", 20, "fresh-second")
-    assert len(app.multiselect(key="batch_selected").options) == 21
+    assert len(message_ids(app)) == 21
 
     # Switching accounts starts from a new list and pagination cursor.
     find(app.button, "Switch account").click()
     checked(app)
-    assert not any(box.key == "batch_selected" for box in app.multiselect)
+    assert not message_ids(app)
     assert not any(button.label == "Load more" for button in app.button)
     find(app.button, "Refresh inbox").click()
     checked(app)
@@ -425,7 +634,7 @@ def test_refresh_and_reconnect_start_a_new_pagination_sequence(tmp_path, monkeyp
     assert find(app.button, "Load more")
     find(app.button, "Disconnect Gmail").click()
     checked(app)
-    assert not any(box.key == "batch_selected" for box in app.multiselect)
+    assert not message_ids(app)
     assert not any(button.label == "Load more" for button in app.button)
     assert app.session_state["mails"] == {}
     assert not (tmp_path / "records" / "auth" / "gmail_token.json").exists()
@@ -434,7 +643,7 @@ def test_refresh_and_reconnect_start_a_new_pagination_sequence(tmp_path, monkeyp
     checked(app)
     find(app.button, "Connect Gmail").click()
     checked(app)
-    assert not any(box.key == "batch_selected" for box in app.multiselect)
+    assert not message_ids(app)
     find(app.button, "Refresh inbox").click()
     checked(app)
     assert state["calls"][-1] == ("list", 20, None)
@@ -447,7 +656,7 @@ def test_account_change_clears_old_messages_before_listing_or_opening(tmp_path, 
     })
     find(app.button, "Refresh inbox").click()
     checked(app)
-    app.multiselect(key="batch_selected").set_value(["message001"])
+    select_messages(app, ["message001"])
     checked(app)
     find(app.button, "View selected messages").click()
     checked(app)
@@ -459,10 +668,10 @@ def test_account_change_clears_old_messages_before_listing_or_opening(tmp_path, 
     checked(app)
     assert "account" in interface_text(app).lower()
     assert [call for call in state["calls"] if call[0] in ("list", "fetch")] == calls_before
-    assert not any(box.key == "batch_selected" for box in app.multiselect)
+    assert not message_ids(app)
     assert not any(button.label == "Load more" for button in app.button)
     assert app.session_state["mails"] == {}
-    assert not any(area.label == "Message" for area in app.text_area)
+    assert not any('class="sf-mail-body"' in element.proto.body for element in app.get("html"))
     if action == "View selected messages":
         assert find(app.button, "Refresh inbox").disabled
         find(app.button, "Reconnect Gmail").click()
@@ -470,8 +679,9 @@ def test_account_change_clears_old_messages_before_listing_or_opening(tmp_path, 
     find(app.button, "Refresh inbox").click()
     checked(app)
     assert state["calls"][-1] == ("list", 20, None)
-    assert len(app.multiselect(key="batch_selected").options) == 2
-    assert app.multiselect(key="batch_selected").value == []
+    assert len(message_ids(app)) == 2
+    assert "batch_selected" not in app.session_state or app.session_state["batch_selected"] == []
+    assert all(not app.checkbox(key="sf_mail_check_" + message_id).value for message_id in message_ids(app))
     assert all(header["id"].startswith("different") for header in app.session_state["gmail_headers"])
 
 
@@ -561,7 +771,7 @@ def test_explicit_disconnect_survives_new_browser_and_clears_messages(tmp_path, 
     app = checked(AppTest.from_file(str(APP)))
     find(app.button, "Refresh inbox").click()
     checked(app)
-    app.multiselect(key="batch_selected").set_value(["message001"])
+    select_messages(app, ["message001"])
     checked(app)
     find(app.button, "View selected messages").click()
     checked(app)
@@ -630,7 +840,7 @@ def test_revoked_login_during_message_action_prompts_reconnect(tmp_path, monkeyp
     app = checked(AppTest.from_file(str(APP)))
     find(app.button, "Refresh inbox").click()
     checked(app)
-    app.multiselect(key="batch_selected").set_value(["message001"])
+    select_messages(app, ["message001"])
     checked(app)
     error = gmail.GmailAuthError("Your Gmail sign-in has expired. Reconnect Gmail to continue.")
     state["fetch_error" if action == "View selected messages" else "list_error"] = error

@@ -1,5 +1,21 @@
 # Validation status
 
+## Sidebar and email workspace — 5 November 2026
+
+The sidebar and shared message browser were checked with **155 passing offline regression tests**. Coverage includes source selection, pagination, account changes, reading without AI consent, reply source handoff, preserved edited drafts, task and fixed-event review edits across navigation, and explicit save/send confirmation. Existing classification, label editing, assistant and daily progress tests also passed. Ruff and whitespace checks passed.
+
+Browser checks used isolated sample messages at 1536×1000 and 1100×800. The sidebar, reader, category review and task-extraction views rendered without application errors or document-level horizontal overflow. No real Gmail writes or model requests were made during these checks.
+
+## Email categories and Gmail labels — 5 November 2026
+
+The Inbox category workflow now uses the existing manager and email specialist to classify selected message text. Results are checked for complete per-message coverage, valid categories and exact quotations. Categories can be reviewed, edited, saved locally and filtered. Gmail synchronization has a separate authorization and a read-only preview; explicit confirmation is required before StudentFlow labels can be changed.
+
+The initial focused offline regression passed **195 tests** covering classification, persistent reviews, identical-content message identity, UI consent and filtering, Gmail label permission and confirmation, stale or cross-account previews, partial failures and retries, plus existing Inbox extraction and reply flows. The user subsequently confirmed that the classification and Gmail label workflow worked in their live account. No classification-accuracy percentage is claimed by these tests.
+
+Manual label editing adds per-message category changes and multiple custom labels, account-specific label creation and renaming, persistence across reanalysis, and filtering by custom label. Renamed Gmail labels migrate only on selected messages after confirmation. The updated focused regression passed **153 tests**, including UI edits, stale-preview invalidation, catalog conflicts, selected-message migration, retry behavior and preservation of unrelated Gmail labels. Ruff and whitespace checks passed. These new editing and migration checks use simulated Google services; the expanded workflow has not yet had a user-observed live-account check.
+
+The earlier prototype record follows below.
+
 This record describes the StudentFlow prototype as of 26 October 2026. It separates user-observed integration checks from automated tests and does not claim exhaustive testing or measured extraction accuracy.
 
 ## Demonstrated core workflows

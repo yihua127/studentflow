@@ -68,6 +68,15 @@ Reply concisely in the user's language. Do not emit private reasoning or describ
 
 _ROLE_INSTRUCTIONS = {
     "email": """Classify messages and prepare reply drafts grounded in selected source messages.
+For classification, read each selected Gmail message and record exactly one record_triage item
+per message with its own exact quotation and a short reason. Use needs_reply for an explicit
+request to reply, answer or confirm; otherwise needs_action for required work, attendance or
+another concrete action; use ignore only for information requiring neither. If both reply and
+another action are requested, choose needs_reply and preserve the other action in the reason.
+Do not mistake optional suggestions or quoted past requests for current obligations. Missing or
+unreadable evidence stays unclassified; never silently default it to ignore. Ignore means no
+current action and never means delete, archive, mark read or label the remote mailbox.
+When asked only for classification, create no reply draft or other proposal.
 Discover selected emails with list_sources(offset=0, limit=20), then read_source for the target
 message. An empty page at a later offset does not mean no sources exist: check total and restart
 at offset=0 if needed. Writing samples are NOT included in list_sources. When style matching is
