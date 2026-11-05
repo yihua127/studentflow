@@ -202,9 +202,9 @@
 .sf-sidebar-account { min-width: 0; }
 .sf-sidebar-account strong, .sf-sidebar-account span { display: block; }
 .sf-sidebar-account strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
   font-size: 0.75rem;
   font-weight: 550;
 }
@@ -236,6 +236,12 @@
 }
 
 [data-testid="stMetricLabel"] { color: var(--sf-muted); }
+[data-testid="stMetricLabel"] [data-testid="stMarkdownContainer"],
+[data-testid="stMetricLabel"] p,
+[data-testid="stCheckbox"] [data-testid="stMarkdownContainer"],
+[data-testid="stCheckbox"] p {
+  white-space: normal; overflow: visible; text-overflow: clip;
+}
 [data-testid="stMetricValue"] { font-size: 1.9rem; font-weight: 650; letter-spacing: -0.04rem; }
 
 [data-testid="stButton"] button,
@@ -727,6 +733,7 @@
 }
 .st-key-sf_attachment_text {
   background: #f8f9fc; border-radius: 0.55rem; padding: 1rem;
+  max-height: 360px; overflow-y: auto;
 }
 .st-key-sf_attachment_text [data-testid="stText"],
 [class*="st-key-sf_attachment_search_hit_"] [data-testid="stText"],
@@ -736,6 +743,20 @@
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .st-key-sf_panel_settings_configuration [data-testid="stForm"] { background: #fafbfe; }
+/* Match only the three overview shortcuts; dynamic work panels keep natural height. */
+[data-testid="stHorizontalBlock"]:has([class*="st-key-sf_panel_overview_route_"]) {
+  align-items: stretch;
+}
+[data-testid="stColumn"]:has(> [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"] > [class*="st-key-sf_panel_overview_route_"]) > [data-testid="stVerticalBlock"] {
+  height: 100%;
+}
+[data-testid="stLayoutWrapper"]:has(> [class*="st-key-sf_panel_overview_route_"]) {
+  display: flex; flex: 1;
+}
+[class*="st-key-sf_panel_overview_route_"] { flex: 1; }
+[class*="st-key-sf_panel_overview_route_"] > [data-testid="stElementContainer"]:last-child {
+  margin-top: auto;
+}
 .sf-action-step {
   margin: 0.5rem 0 0.4rem; color: #58698b; font-size: 0.8rem; font-weight: 650;
 }
@@ -756,6 +777,8 @@
 }
 [class*="st-key-sf_panel_daily_"] [data-testid="stMetric"] { background: #f6f7fb; border-color: #edf0f5; padding: 0.8rem; }
 [class*="st-key-sf_panel_daily_"] [data-testid="stMetricValue"] { font-size: 1.5rem; }
+.st-key-sf_mail_browser [data-testid="stButton"] button [data-testid="stMarkdownContainer"],
+.st-key-sf_mail_browser [data-testid="stButton"] button p,
 [class*="st-key-sf_panel_"] [data-testid="stButton"] button [data-testid="stMarkdownContainer"],
 [class*="st-key-sf_panel_"] [data-testid="stButton"] button p,
 [class*="st-key-sf_panel_"] [data-testid="stFormSubmitButton"] button [data-testid="stMarkdownContainer"],
@@ -763,6 +786,25 @@
   white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.45;
 }
 @media (max-width: 1100px) {
+  [data-testid="stMainBlockContainer"] { padding-left: 1.3rem; padding-right: 1.3rem; }
   [class*="st-key-sf_panel_attachments_"], [class*="st-key-sf_panel_settings_"],
   [class*="st-key-sf_panel_daily_"] { padding: 1rem; }
+}
+/* Stack the main workspace panels before their forms become cramped.
+   Nested controls and the seven-column calendar retain their own layout. */
+@media (max-width: 1000px) {
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] :is(
+    .st-key-sf_mail_browser, .st-key-sf_panel_tasks_browser,
+    .st-key-sf_panel_overview_calendar, .st-key-sf_panel_plan_commitments,
+    .st-key-sf_panel_attachments_browser, .st-key-sf_panel_settings_configuration,
+    [class*="st-key-sf_daily_inputs_"]
+  )) { flex-direction: column; }
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] :is(
+    .st-key-sf_mail_browser, .st-key-sf_panel_tasks_browser,
+    .st-key-sf_panel_overview_calendar, .st-key-sf_panel_plan_commitments,
+    .st-key-sf_panel_attachments_browser, .st-key-sf_panel_settings_configuration,
+    [class*="st-key-sf_daily_inputs_"]
+  )) > [data-testid="stColumn"] { width: 100%; flex: 1 1 auto; }
+  .st-key-sf_panel_overview_calendar,
+  .st-key-sf_panel_overview_todos { min-height: 0; }
 }

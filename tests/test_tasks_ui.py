@@ -8,7 +8,7 @@ from streamlit.testing.v1 import AppTest
 
 from studentflow.effort_review import build_effort_review
 from studentflow.storage import Store
-from studentflow.tasks_ui import tasks_csv
+from studentflow.tasks_ui import _task_choice_labels, tasks_csv
 
 APP_SOURCE = """
 import os
@@ -234,6 +234,60 @@ def test_saving_a_task_keeps_it_visible_when_its_title_and_status_change(workspa
     assert app.selectbox(key="sf_task_status").value == "All tasks"
     assert field(app.text_input, "Task name").value == "Write final report"
     assert field(app.checkbox, "I have reviewed these task details.").value is False
+
+
+def test_duplicate_task_labels_do_not_collide_with_naturally_numbered_sources():
+    tasks = [
+        {"id": "first", "title": "Prepare report", "mail_subject": "Weekly notes"},
+        {"id": "second", "title": "Prepare report", "mail_subject": "Weekly notes"},
+        {"id": "numbered-one", "title": "Prepare report", "mail_subject": "Weekly notes · #1"},
+        {"id": "numbered-two", "title": "Prepare report", "mail_subject": "Weekly notes · #2"},
+        {"id": "ordinary", "title": "Read chapter 3", "mail_subject": "Seminar preparation"},
+    ]
+    labels = _task_choice_labels(tasks)
+    assert len(set(labels.values())) == len(tasks)
+    assert labels["numbered-one"] == "Prepare report · Weekly notes · #1"
+    assert labels["numbered-two"] == "Prepare report · Weekly notes · #2"
+    assert labels["ordinary"] == "Read chapter 3 · Seminar preparation"
+
+
+def test_duplicate_task_selection_keeps_exact_record_across_reruns_and_save(workspace):
+    first_id = save_task(workspace, source_quote="First assignment evidence.", estimated_minutes=30)
+    second_id = save_task(workspace, mail_id="message-two", source_quote="Second assignment evidence.",
+                          estimated_minutes=60, status="confirmed", due_at="2030-01-16T17:00:00+08:00")
+    numbered_id = save_task(workspace, mail_id="message-three", mail_subject="Report assignment · #1",
+                            source_quote="Naturally numbered source evidence.", estimated_minutes=90)
+    app = checked(AppTest.from_string(APP_SOURCE))
+    labels = app.selectbox(key="tasks_selected_Unfinished").options
+    assert len(labels) == len(set(labels)) == 3
+    expected = {
+        first_id: (30, "First assignment evidence."),
+        second_id: (60, "Second assignment evidence."),
+        numbered_id: (90, "Naturally numbered source evidence."),
+    }
+    for identifier in (second_id, first_id, numbered_id, second_id):
+        app.selectbox(key="tasks_selected_Unfinished").set_value(identifier)
+        checked(app)
+        checked(app)
+        assert app.selectbox(key="tasks_selected_Unfinished").value == identifier
+        minutes, quote = expected[identifier]
+        assert field(app.number_input, "Estimated study time (minutes)").value == minutes
+        assert quote in {item.value for item in field(app.expander, "Original supporting text").text}
+    app.button(key=f"sf_task_open_{first_id}").click()
+    checked(app)
+    assert app.selectbox(key="tasks_selected_Unfinished").value == first_id
+    app.button(key=f"sf_task_open_{second_id}").click()
+    checked(app)
+    app.selectbox(key="sf_task_status").set_value("Ready to plan")
+    checked(app)
+    assert app.selectbox(key="tasks_selected_Unfinished").value == second_id
+    assert app.selectbox(key="tasks_selected_Unfinished").options == [labels[1]]
+    field(app.number_input, "Estimated study time (minutes)").set_value(75)
+    save_changes(app)
+    assert app.selectbox(key="tasks_selected_Unfinished").value == second_id
+    assert {task["id"]: task["estimated_minutes"] for task in workspace.tasks()} == {
+        first_id: 30, second_id: 75, numbered_id: 90,
+    }
 
 
 def test_task_navigation_keeps_browsing_state_but_requires_fresh_review(workspace):

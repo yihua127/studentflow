@@ -589,8 +589,7 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
     notice = st.session_state.pop(prefix + "effort_notice", None)
     if notice:
         st.success(notice)
-    context_column, request_column = st.columns([1, 1.15], gap="medium")
-    with context_column, st.container(border=True, key="sf_panel_assistant_sources_" + prefix):
+    with st.container(border=True, key="sf_panel_assistant_sources_" + prefix):
         st.html('<div class="sf-eyebrow">01 / CONTEXT</div>')
         st.subheader("Choose your sources")
         st.caption(
@@ -700,7 +699,7 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
                 except ValueError as error:
                     reference_error = str(error)
                     st.warning(reference_error)
-    with request_column, st.container(border=True, key="sf_panel_assistant_request_" + prefix):
+    with st.container(border=True, key="sf_panel_assistant_request_" + prefix):
         st.html('<div class="sf-eyebrow">02 / REQUEST</div>')
         st.subheader(
             "Prepare your discussion summary" if is_meeting else
@@ -743,7 +742,7 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
         signature = snapshot_signature(snapshot)
         request = st.text_area(
             "What would you like help with?", max_chars=4000, key=prefix + "request",
-            height=220 if is_meeting else 180,
+            height=160,
             placeholder=("Draft a reply to the selected email." if is_email
                          else "Ask about the selected information."),
         )
@@ -819,42 +818,38 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
             except Exception:  # noqa: BLE001 - provider exceptions can contain credentials.
                 # SDK/provider errors may contain secrets or selected source content.
                 st.error("The assistant could not complete this request. Check Settings or try a smaller selection. No records were changed.")
+    report = st.session_state.get(prefix + "result")
+    if not report:
+        st.caption("Your results will appear below after you run the assistant.")
+        return
     with st.container(border=True, key="sf_panel_assistant_result_" + prefix):
         st.html('<div class="sf-eyebrow">03 / REVIEW</div>')
         st.subheader("Your discussion summary" if is_meeting else "Your assistant results")
-        report = st.session_state.get(prefix + "result")
-        if report:
-            stale = (report["signature"] != signature or report["request"] != request
-                     or report.get("model") != model)
-            if stale:
-                st.warning("Your request, model or selected information changed. Run the assistant again for an up-to-date result.")
-                return
-            result = report["result"]
-            if result.status != "completed":
-                st.warning("This request was not fully completed. Review the available suggestions and any missing information.")
-            st.write("**Assistant response**")
-            render_response(result.answer, report["sources"])
-            _render_artifacts(
-                result.artifacts, report["sources"], report["id"], store=store,
-                model=report["model"], selected_task_ids={item["id"] for item in selected_tasks},
-                root=root, data_dir=data_dir,
-                result_key=prefix + "result",
-                analysis_status=result.status,
-            )
-            metadata = report["metadata"]
-            st.caption(f"Prepared in {metadata['elapsed_seconds']} seconds. Results remain in this browser session.")
-            with st.expander("Processing details"):
-                st.caption("Tool names, status, safe error reasons and usage are shown. Source text and credentials are excluded from the usage log.")
-                safe_events = diagnostic_events(result.events)
-                if any(safe_events):
-                    st.dataframe(safe_events, hide_index=True)
-                if metadata["usage"]:
-                    st.dataframe([metadata["usage"]], hide_index=True)
-                    if metadata["usage"].get("usage_complete") is False:
-                        st.warning("Some requests did not return usage information. Reported tokens may be incomplete; check your API billing for actual usage.")
-        else:
-            st.html(
-                '<div class="sf-empty-state"><strong>Your next step, made clearer</strong>'
-                '<p>Choose your sources and run the assistant. '
-                'Your results will appear here, ready for you to review.</p></div>'
-            )
+        stale = (report["signature"] != signature or report["request"] != request
+                 or report.get("model") != model)
+        if stale:
+            st.warning("Your request, model or selected information changed. Run the assistant again for an up-to-date result.")
+            return
+        result = report["result"]
+        if result.status != "completed":
+            st.warning("This request was not fully completed. Review the available suggestions and any missing information.")
+        st.write("**Assistant response**")
+        render_response(result.answer, report["sources"])
+        _render_artifacts(
+            result.artifacts, report["sources"], report["id"], store=store,
+            model=report["model"], selected_task_ids={item["id"] for item in selected_tasks},
+            root=root, data_dir=data_dir,
+            result_key=prefix + "result",
+            analysis_status=result.status,
+        )
+        metadata = report["metadata"]
+        st.caption(f"Prepared in {metadata['elapsed_seconds']} seconds. Results remain in this browser session.")
+        with st.expander("Processing details"):
+            st.caption("Tool names, status, safe error reasons and usage are shown. Source text and credentials are excluded from the usage log.")
+            safe_events = diagnostic_events(result.events)
+            if any(safe_events):
+                st.dataframe(safe_events, hide_index=True)
+            if metadata["usage"]:
+                st.dataframe([metadata["usage"]], hide_index=True)
+                if metadata["usage"].get("usage_complete") is False:
+                    st.warning("Some requests did not return usage information. Reported tokens may be incomplete; check your API billing for actual usage.")

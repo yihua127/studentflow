@@ -118,44 +118,47 @@ def render_ai_settings(root: Path) -> None:
                 st.session_state.sf_ai_settings_saved = True
                 st.rerun()
         st.caption("Your saved key is never filled back into this form. Leave it blank when changing only the model.")
-    with support:
-        with st.container(border=True, key="sf_panel_settings_connection"):
-            st.html('<div class="sf-eyebrow">02 / CHECK</div>')
-            st.subheader("Connection check")
-            st.html(
-                '<span class="sf-pill sf-pill-success">Key saved</span>' if api_key else
-                '<span class="sf-pill sf-pill-warning">Setup needed</span>'
-            )
-            st.caption("Current saved model")
-            st.text(model)
-            if not api_key:
-                st.caption("Add your OpenAI API key to enable AI extraction.")
-            st.caption(
-                "Test AI connection sends a short built-in example to OpenAI. "
-                "Standard API usage charges apply."
-            )
-            if st.button("Test AI connection", disabled=not api_key, key="sf_ai_test_connection", width="stretch"):
-                with st.spinner("Checking AI connection..."):
-                    try:
-                        valid = check_ai_connection(api_key, model)
-                    except Exception:  # noqa: BLE001 - Never expose provider request data or credentials.
-                        st.error(
-                            "The AI connection could not be verified. Check your API key, "
-                            "API balance, internet connection, and model access."
-                        )
+    with support, st.container(border=True, key="sf_panel_settings_connection"):
+        st.html('<div class="sf-eyebrow">02 / CHECK</div>')
+        st.subheader("Connection check")
+        st.html(
+            '<span class="sf-pill sf-pill-success">Key saved</span>' if api_key else
+            '<span class="sf-pill sf-pill-warning">Setup needed</span>'
+        )
+        st.caption("Current saved model")
+        st.text(model)
+        if not api_key:
+            st.caption("Add your OpenAI API key to enable AI extraction.")
+        st.caption(
+            "Test AI connection sends a short built-in example to OpenAI. "
+            "Standard API usage charges apply."
+        )
+        if st.button("Test AI connection", disabled=not api_key, key="sf_ai_test_connection", width="stretch"):
+            with st.spinner("Checking AI connection..."):
+                try:
+                    valid = check_ai_connection(api_key, model)
+                except Exception:  # noqa: BLE001 - Never expose provider request data or credentials.
+                    st.error(
+                        "The AI connection could not be verified. Check your API key, "
+                        "API balance, internet connection, and model access."
+                    )
+                else:
+                    if valid:
+                        st.success("AI connection successful. Task extraction is ready.")
                     else:
-                        if valid:
-                            st.success("AI connection successful. Task extraction is ready.")
-                        else:
-                            st.warning("The model responded. Try the check again to verify task extraction.")
-        with st.container(border=True, key="sf_panel_settings_help"):
-            st.subheader("Setup & account")
-            st.caption("Find your key, check API billing or follow the setup guide.")
-            for label, url in (
+                        st.warning("The model responded. Try the check again to verify task extraction.")
+    with st.container(border=True, key="sf_panel_settings_help"):
+        st.subheader("Setup & account")
+        st.caption("Find your key, check API billing or follow the setup guide.")
+        links = st.columns(3, gap="medium")
+        for column, (label, url) in zip(
+            links, (
                 ("Create an API key", "https://platform.openai.com/api-keys"),
                 ("OpenAI billing", "https://platform.openai.com/settings/organization/billing/overview"),
                 ("Setup guide", "https://github.com/yihua127/studentflow/blob/main/docs/OPENAI_SETUP.md"),
-            ):
+            ), strict=True,
+        ):
+            with column:
                 st.link_button(
                     label, url, width="stretch", icon=":material/open_in_new:",
                 )

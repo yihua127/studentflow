@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import sqlite3
+from collections import Counter
 from datetime import datetime
 from html import escape
 from zoneinfo import ZoneInfo
@@ -42,6 +43,28 @@ def _is_completed(task):
 def _duration(minutes):
     hours, remainder = divmod(int(minutes), 60)
     return f"{hours}h {remainder}m" if hours and remainder else f"{hours}h" if hours else f"{remainder}m"
+
+
+def _task_choice_labels(tasks: list[dict]) -> dict[str, str]:
+    """Keep native selection labels unique without changing stable task IDs."""
+    labels = {
+        task["id"]: task["title"] + " · " + (task.get("mail_subject") or "Saved message")
+        for task in tasks
+    }
+    counts = Counter(labels.values())
+    reserved = set(labels.values())
+    sequence = Counter()
+    for identifier, label in labels.items():
+        if counts[label] == 1:
+            continue
+        sequence[label] += 1
+        candidate = f"{label} · #{sequence[label]}"
+        while candidate in reserved:
+            sequence[label] += 1
+            candidate = f"{label} · #{sequence[label]}"
+        labels[identifier] = candidate
+        reserved.add(candidate)
+    return labels
 
 
 def preserve_task_inputs():
@@ -348,12 +371,11 @@ def render_tasks(store):
                            icon=":material/download:", width="stretch")
     with editor, st.container(border=True, key="sf_panel_tasks_editor"):
         if by_id:
+            # Use the full task list so filtering cannot renumber a selected task.
+            labels = _task_choice_labels(tasks)
             task_id = st.selectbox(
                 "Edit task", list(by_id), key=selection_key,
-                format_func=lambda identifier: (
-                    by_id[identifier]["title"] + " · "
-                    + (by_id[identifier].get("mail_subject") or "Saved message")
-                ),
+                format_func=labels.__getitem__,
             )
             _render_task_summary(by_id[task_id])
             _render_editor(store, by_id[task_id])

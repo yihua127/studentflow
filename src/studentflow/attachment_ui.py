@@ -89,17 +89,31 @@ def render_attachments(store, mails: dict) -> None:
             st.session_state.pop(selection_key, None)
         selected = None
         if choices:
-            selected = st.radio(
-                "Document to preview", list(choices), key=selection_key,
-                label_visibility="collapsed",
-                format_func=document_labels.__getitem__,
-            )
+            with st.container(
+                height=300 if len(choices) > 4 else "content", border=False,
+                key="sf_attachment_choices",
+            ):
+                selected = st.radio(
+                    "Document to preview", list(choices), key=selection_key,
+                    label_visibility="collapsed",
+                    format_func=document_labels.__getitem__,
+                )
             st.caption(f"{len(matches)} of {len(documents)} document(s)")
         else:
             st.info("No documents match this filter. Try a filename or source message.")
-        st.divider()
-        st.caption("Attachments from messages with extracted or saved tasks are kept on this device until you delete them.")
-        st.caption("Readable PDF and Word text is included in task extraction. Images and scanned pages need text recognition.")
+        with st.expander("About saved documents"):
+            st.caption("Attachments from messages with extracted or saved tasks are kept on this device until you delete them.")
+            st.caption("Readable PDF and Word text is included in task extraction. Images and scanned pages need text recognition.")
+    with browser, st.container(border=True, key="sf_panel_attachments_search"):
+        st.html('<div class="sf-eyebrow">FIND THE DETAIL</div>')
+        st.subheader("Search document text")
+        st.caption("Search readable text across all available documents, with the source message and page for each match.")
+        with st.form("attachment_search", border=False):
+            question = st.text_input("Search attachments", placeholder="Enter keywords from the document", key="sf_attachment_search")
+            search = st.form_submit_button("Search", width="stretch")
+        hits = search_chunks(question, build_chunks(documents)) if search else None
+        if hits is not None and not hits:
+            st.info("No matching text found. Try different keywords.")
     with preview, st.container(border=True, key="sf_panel_attachments_preview"):
         st.html('<div class="sf-eyebrow">DOCUMENT PREVIEW</div>')
         if selected is None:
@@ -141,7 +155,7 @@ def render_attachments(store, mails: dict) -> None:
             st.divider()
             st.write("**Document text**")
             if document.get("text"):
-                with st.container(height=360, border=False, key="sf_attachment_text"):
+                with st.container(border=False, key="sf_attachment_text"):
                     st.text(document["text"])
             else:
                 st.caption("No readable text is available. Check the document status and any reading notes above.")
@@ -156,17 +170,10 @@ def render_attachments(store, mails: dict) -> None:
                     else:
                         st.session_state.attachment_notice = "Attachment deleted. Saved tasks were kept."
                         st.rerun()
-    with st.container(border=True, key="sf_panel_attachments_search"):
-        st.html('<div class="sf-eyebrow">FIND THE DETAIL</div>')
-        st.subheader("Search document text")
-        st.caption("Search readable text across all available documents, with the source message and page for each match.")
-        with st.form("attachment_search", border=False):
-            question = st.text_input("Search attachments", placeholder="Enter keywords from the document", key="sf_attachment_search")
-            search = st.form_submit_button("Search")
-        if search:
-            hits = search_chunks(question, build_chunks(documents))
-            if not hits:
-                st.info("No matching text found. Try different keywords.")
+    if hits:
+        with st.container(border=True, key="sf_panel_attachments_matches"):
+            st.html('<div class="sf-eyebrow">MATCHING PASSAGES</div>')
+            st.subheader("Search results")
             subjects = {document["mail_id"]: document["message_subject"] for document in documents}
             for index, hit in enumerate(hits):
                 with st.container(border=True, key=f"sf_attachment_search_hit_{index}"):

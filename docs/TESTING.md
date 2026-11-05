@@ -1,5 +1,11 @@
 # Validation status
 
+## Whole-workspace layout review — 5 November 2026
+
+**161 affected offline regression tests passed**, covering all main pages, task editing and selection, planning, attachments, settings, assistant workspaces and handoff, meeting results, daily progress, and reviewed sending and Calendar sync. New task-selection cases cover identical titles and source subjects, naturally numbered labels, filtering, repeated selection and saving only the intended record. Repository-wide Ruff and whitespace checks passed.
+
+Browser review covered all eight main pages at 1536×1000, 1100×800 and 900×800 using isolated local fixtures. Assistant and Discussions now use sequential source/request panels; attachment search sits beneath the browser, and narrower workspaces stack their main panels. The reviewed pages had no application exceptions or document-level horizontal overflow. Follow-up checks verified aligned overview shortcuts, complete study-preference controls, scrolling long attachment text, search across documents outside the current filter, original-file download, and plan saving disabled before review. Discussion generation and Word download, edited reply retention across mode changes, and the Other assistance result flow also passed browser checks. At 900px, daily progress and Calendar confirmation labels were checked again after correcting text truncation; unapproved send and sync actions remain disabled. These checks used simulated services and did not access real accounts or make paid model requests.
+
 ## Library, settings and reviewed-action panels — 5 November 2026
 
 The combined affected offline regression passed **108 tests** covering attachment retention/search/download/deletion, settings persistence and key redaction, daily progress, fixed-event review/edit/removal, reviewed Gmail sending and Calendar sync, plus application and assistant integration. A subsequent **17-test attachment regression** also passed after adding a same-filename/same-subject selection case. These runs overlap; their counts are not additive. All changed Python files passed Ruff and the whitespace check.

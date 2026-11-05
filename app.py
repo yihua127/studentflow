@@ -488,15 +488,15 @@ def render_overview(store, data_dir):
     render_overview_schedule(store, data_dir)
     st.subheader("Pick up your work")
     left, middle, right = st.columns(3)
-    for column, title, description, destination in (
-        (left, "Process your inbox", "Review messages, organize labels and prepare replies.", "Inbox (Gmail)"),
-        (middle, "Make room to study", "Review tasks and build a plan around your availability.", "Study Plan"),
-        (right, "Bring a discussion together", "Turn selected messages into decisions and meeting notes.", "Discussions"),
+    for column, title, description, destination, route_key in (
+        (left, "Process your inbox", "Review messages, organize labels and prepare replies.", "Inbox (Gmail)", "inbox"),
+        (middle, "Make room to study", "Review tasks and build a plan around your availability.", "Study Plan", "study_plan"),
+        (right, "Bring a discussion together", "Turn selected messages into decisions and meeting notes.", "Discussions", "discussions"),
     ):
-        with column, st.container(border=True, key="sf_panel_overview_" + destination):
+        with column, st.container(border=True, key="sf_panel_overview_route_" + route_key):
             st.markdown("**" + title + "**")
             st.caption(description)
-            st.button("Open " + destination.replace(" (Gmail)", ""), on_click=_go_to, args=(destination,))
+            st.button("Open " + destination.replace(" (Gmail)", ""), on_click=_go_to, args=(destination,), width="stretch")
     with st.container(border=True, key="sf_panel_overview_progress"):
         st.subheader("Daily progress")
         st.caption("Record completed study time and review any missed check-ins.")

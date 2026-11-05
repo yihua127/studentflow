@@ -534,7 +534,7 @@ def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | Non
             _availability(preferences, path)
 
     with commitments:
-        left, right = st.columns([1.1, 1], gap="large")
+        left, right = st.columns([1.1, 1], gap="medium")
         with left, st.container(border=True, key="sf_panel_plan_commitments"):
             _commitments(preferences, path)
         with right, st.container(border=True, key="sf_panel_plan_events"):

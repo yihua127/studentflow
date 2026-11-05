@@ -1,6 +1,6 @@
 # Using StudentFlow
 
-Use the left sidebar to move between **Overview**, **Inbox**, **Tasks**, **Study plan**, **Discussions**, **Assistant**, **Attachments** and **Settings**. Overview shows remaining work and daily progress check-ins. Discussions opens the meeting workspace directly; Assistant retains all three assistance modes.
+Use the left sidebar to move between **Overview**, **Inbox**, **Tasks**, **Study plan**, **Discussions**, **Assistant**, **Attachments** and **Settings**. Overview shows remaining work and daily progress check-ins. Discussions opens the meeting workspace directly; Assistant retains all three assistance modes. On narrower windows, the main two-column workspaces stack vertically to keep their controls readable.
 
 ## Overview
 
@@ -127,7 +127,7 @@ Each date has a check-in card with planned minutes and tasks beside the completi
 
 Attachments from messages with extracted or saved tasks are kept on this device with their original files and readable text. Open **Attachments** to view them after restarting, search source text or choose **Download original**. Use **Save attachment** to keep another opened file.
 
-Use **Filter documents** on the left to find a filename or source message, then select a document to preview its full readable text and original-file actions on the right. **Search document text** searches all available documents, even when the browser is filtered.
+Use **Filter documents** to find a filename or source message, then select a document to preview its full readable text and original-file actions. Longer document lists and previews scroll within their panels. **Search document text** sits below the document list and searches all available documents, even when the browser is filtered. Matching passages appear beneath the workspace at full width. **About saved documents** explains file retention and supported text.
 
 To remove an attachment, open **Manage attachment** in its preview, select its deletion checkbox and choose **Delete attachment**. The file and its indexed text are removed from the library; saved tasks and their supporting quotations remain. Deleted files stay removed when the same message is reopened.
 
@@ -135,13 +135,13 @@ To remove an attachment, open **Manage attachment** in its preview, select its d
 
 Enter an OpenAI API key in **Settings**, keep the suggested model or enter another model ID, and select **Save AI settings**. The key is saved on your device and the input field is cleared. Leave the key field blank when changing only the model.
 
-The configuration form is on the left; the connection check and account/setup links are on the right. **Key saved** indicates a stored configuration, not a successful live connection test.
+The configuration form and connection check appear together, with account/setup links below. **Key saved** indicates a stored configuration, not a successful live connection test.
 
 Select **Test AI connection** to run a short built-in example. This uses the API balance. Once the check succeeds, return to **Inbox (Gmail)** to extract tasks. Follow the [OpenAI setup guide](OPENAI_SETUP.md) for account, billing and API key instructions.
 
 ## Assistant
 
-Discussions and Assistant use the same layout: choose sources in the left panel, prepare your request and approve its use in the right panel, then review results below. The source preview, connection controls and optional writing style expand when needed. Discussion cards show counts of decisions, action items and open questions, with downloads beneath the notes.
+Discussions and Assistant use the same layout: choose sources, then prepare your request and approve its use in the next panel. Results appear below after running the assistant. The source preview, connection controls and optional writing style expand when needed. Discussion cards show counts of decisions, action items and open questions, with downloads beneath the notes.
 
 Choose **Email replies**, **Meetings & discussions** or **Other assistance** under **Assistant workspace**. Each has its own request, selected information and results. Switching preserves those inputs and any edited draft during this browser session; the next model request needs fresh consent. Only Email replies loads or saves your writing sample and reply preferences.
 
