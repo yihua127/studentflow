@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from contextlib import closing
 from datetime import datetime, time, timedelta
+from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -132,7 +133,12 @@ def render_workspace_sources(
         )
         profile = st.session_state.get(PREFIX + "profile", {})
         if profile:
-            st.success("Google connected: " + profile.get("email_address", "Google account"))
+            account_label = escape(profile.get("email_address") or "Google account")
+            st.html(
+                '<div class="sf-workspace-account">'
+                '<span class="sf-pill sf-pill-success">Google connected</span>'
+                f'<span>{account_label}</span></div>'
+            )
         elif token_path.is_file():
             st.caption("A Google sign-in is saved on this device. Load a discussion or calendar to use it.")
         st.checkbox(
@@ -142,6 +148,7 @@ def render_workspace_sources(
         if st.button(
             "Connect Google", key=PREFIX + "connect",
             disabled=not client_path.is_file() or not st.session_state[PREFIX + "consent"],
+            width="stretch",
         ):
             try:
                 with st.spinner("Connecting to Google..."):
@@ -165,9 +172,12 @@ def render_workspace_sources(
                 st.error(str(error))
             except (OSError, ValueError):
                 st.error("Google sign-in could not be saved. Check the local setup and try again.")
-        if token_path.is_file() and st.button(
+        if token_path.is_file():
+            switch_column, disconnect_column = st.columns(2, gap="small")
+        if token_path.is_file() and switch_column.button(
             "Switch Google account", key=PREFIX + "switch",
             disabled=not client_path.is_file() or not st.session_state.get(PREFIX + "consent"),
+            width="stretch",
         ):
             # Interactive authorization may replace the token before profile verification.
             _clear_account_sources()
@@ -177,7 +187,9 @@ def render_workspace_sources(
                 st.rerun()
             except GoogleWorkspaceError as error:
                 st.error(str(error))
-        if token_path.is_file() and st.button("Disconnect Google", key=PREFIX + "disconnect"):
+        if token_path.is_file() and disconnect_column.button(
+            "Disconnect Google", key=PREFIX + "disconnect", width="stretch",
+        ):
             try:
                 token_path.unlink(missing_ok=True)
             except OSError:
@@ -188,8 +200,13 @@ def render_workspace_sources(
         ready = token_path.is_file() and bool(st.session_state.get(PREFIX + "consent"))
         if not client_path.is_file():
             st.info("Configure the Google desktop sign-in client in Gmail setup first.")
+        st.divider()
         if show_chat:
-            if st.button("Load Google Chat spaces", disabled=not ready, key=PREFIX + "load_spaces"):
+            st.html('<div class="sf-eyebrow">Discussion room</div>')
+            if st.button(
+                "Load Google Chat spaces", disabled=not ready,
+                key=PREFIX + "load_spaces", width="stretch",
+            ):
                 _clear_loaded_discussion()
                 st.session_state.pop(PREFIX + "spaces", None)
                 try:
@@ -213,7 +230,10 @@ def render_workspace_sources(
                 )
                 if st.session_state.get(PREFIX + "loaded_space") != space:
                     _clear_loaded_discussion()
-                if st.button("Read selected discussion", disabled=not ready, key=PREFIX + "read_chat"):
+                if st.button(
+                    "Read selected discussion", disabled=not ready,
+                    key=PREFIX + "read_chat", width="stretch",
+                ):
                     # A failed refresh must not leave old messages looking current.
                     st.session_state.pop(PREFIX + "messages", None)
                     try:
@@ -241,7 +261,11 @@ def render_workspace_sources(
         if show_calendar:
             if show_chat:
                 st.divider()
-            if st.button("Load Google calendars", disabled=not ready, key=PREFIX + "load_calendars"):
+            st.html('<div class="sf-eyebrow">Calendar context</div>')
+            if st.button(
+                "Load Google calendars", disabled=not ready,
+                key=PREFIX + "load_calendars", width="stretch",
+            ):
                 try:
                     with closing(connect_workspace(client_path, token_path)) as client:
                         _account(client)
@@ -272,7 +296,7 @@ def render_workspace_sources(
                 selection = {"calendar_ids": selected, "time_min": time_min, "time_max": time_max}
                 if st.button(
                     "Read selected calendars", disabled=not ready or not selected or not valid_range,
-                    key=PREFIX + "read_calendars",
+                    key=PREFIX + "read_calendars", width="stretch",
                 ):
                     st.session_state.pop(PREFIX + "events", None)
                     st.session_state.pop(PREFIX + "coverage", None)

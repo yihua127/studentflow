@@ -135,6 +135,8 @@ Select **Test AI connection** to run a short built-in example. This uses the API
 
 ## Assistant
 
+Discussions and Assistant use the same layout: choose sources in the left panel, prepare your request and approve its use in the right panel, then review results below. The source preview, connection controls and optional writing style expand when needed. Discussion cards show counts of decisions, action items and open questions, with downloads beneath the notes.
+
 Choose **Email replies**, **Meetings & discussions** or **Other assistance** under **Assistant workspace**. Each has its own request, selected information and results. Switching preserves those inputs and any edited draft during this browser session; the next model request needs fresh consent. Only Email replies loads or saves your writing sample and reply preferences.
 
 For a discussion, choose **Meetings & discussions**, choose a space under **Google Chat discussions** and select **Read selected discussion**. Choose one or more **Messages to analyze**, and use the prefilled English analysis request or edit it. Optional attachments are selected separately under **Supporting attachments (optional)**. There is no need to replace your saved email request or disable your email writing sample. The result includes a discussion summary, decisions and action items for review, with supporting text when available.

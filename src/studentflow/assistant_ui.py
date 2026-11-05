@@ -363,14 +363,16 @@ def _render_artifacts(
 ) -> None:
     triage = artifacts.get("triage", [])
     if triage:
-        st.write("**Suggested email categories**")
-        st.dataframe([
-            {"Message": sources.get(item["source_id"], {}).get("title", "Selected message"),
-             "Category": item["category"].replace("_", " ").capitalize(),
-             "Reason": item["reason"]} for item in triage
-        ], hide_index=True)
+        with st.container(border=True, key="sf_panel_artifact_categories_" + report_id):
+            st.write("**Suggested email categories**")
+            st.dataframe([
+                {"Message": sources.get(item["source_id"], {}).get("title", "Selected message"),
+                 "Category": item["category"].replace("_", " ").capitalize(),
+                 "Reason": item["reason"]} for item in triage
+            ], hide_index=True, width="stretch")
     for item in artifacts.get("reply_drafts", []):
-        with st.container(border=True):
+        with st.container(border=True, key=f"sf_panel_artifact_reply_{report_id}_{item['id']}"):
+            st.html('<div class="sf-artifact-eyebrow">READY TO REVIEW</div>')
             st.write("**Reply draft**")
             st.caption("Review the recipient and content before sending this reply.")
             st.text("To: " + (item.get("recipient") or "Recipient needs confirmation"))
@@ -379,13 +381,14 @@ def _render_artifacts(
                 key=f"sf_assistant_subject_{report_id}_{item['id']}",
             )
             body = st.text_area(
-                "Draft message", value=item["body"], height=220,
+                "Draft message", value=item["body"], height=280,
                 key=f"sf_assistant_body_{report_id}_{item['id']}",
             )
             st.download_button(
                 "Download draft", f"To: {item.get('recipient') or ''}\nSubject: {subject}\n\n{body}",
                 file_name="reply-draft.txt", mime="text/plain",
                 key=f"sf_assistant_download_{report_id}_{item['id']}",
+                icon=":material/download:",
             )
             if root is not None and data_dir is not None:
                 from studentflow.reply_send_ui import render_reply_send
@@ -394,46 +397,60 @@ def _render_artifacts(
             _evidence(item.get("citations", []), sources)
     proposals = artifacts.get("task_proposals", [])
     if proposals:
-        st.write("**Task suggestions**")
-        st.caption("Review suggestions and their sources. Only an explicitly reviewed study-time update can be saved here; other task details remain previews.")
-        st.dataframe([
-            {"Task": item["title"], "Suggestion": item["relation"].capitalize(),
-             "Deadline": item.get("due_at") or "Needs details",
-             "Stated minutes": item.get("estimated_minutes"),
-             "Suggested minutes": item.get("suggested_minutes")} for item in proposals
-        ], hide_index=True)
-        for index, item in enumerate(proposals, 1):
-            with st.expander(f"Suggestion {index}: details and evidence"):
-                st.text(item["title"])
-                previous = item.get("previous")
-                if previous:
-                    st.dataframe([
-                        {"Details": "Current task", "Task": previous.get("title"),
-                         "Deadline": previous.get("due_at"),
-                         "Estimated minutes": previous.get("estimated_minutes")},
-                        {"Details": "Proposed details", "Task": item["title"],
-                         "Deadline": item.get("due_at"),
-                         "Estimated minutes": item.get("estimated_minutes")},
-                    ], hide_index=True)
-                    st.caption("Recorded progress is unchanged. Missing proposed values need review.")
-                if item.get("estimate_reason"):
-                    st.text(item["estimate_reason"])
-                for note in item.get("notes", []):
-                    st.text(note)
-                _evidence(item.get("citations", []), sources)
-                _review_study_time(item, report_id, store, model, selected_task_ids, result_key)
+        with st.container(border=True, key="sf_panel_artifact_tasks_" + report_id):
+            st.write("**Task suggestions**")
+            st.caption("Review suggestions and their sources. Only an explicitly reviewed study-time update can be saved here; other task details remain previews.")
+            st.dataframe([
+                {"Task": item["title"], "Suggestion": item["relation"].capitalize(),
+                 "Deadline": item.get("due_at") or "Needs details",
+                 "Stated minutes": item.get("estimated_minutes"),
+                 "Suggested minutes": item.get("suggested_minutes")} for item in proposals
+            ], hide_index=True, width="stretch")
+            for index, item in enumerate(proposals, 1):
+                with st.expander(f"Suggestion {index}: details and evidence"):
+                    st.text(item["title"])
+                    previous = item.get("previous")
+                    if previous:
+                        st.dataframe([
+                            {"Details": "Current task", "Task": previous.get("title"),
+                             "Deadline": previous.get("due_at"),
+                             "Estimated minutes": previous.get("estimated_minutes")},
+                            {"Details": "Proposed details", "Task": item["title"],
+                             "Deadline": item.get("due_at"),
+                             "Estimated minutes": item.get("estimated_minutes")},
+                        ], hide_index=True, width="stretch")
+                        st.caption("Recorded progress is unchanged. Missing proposed values need review.")
+                    if item.get("estimate_reason"):
+                        st.text(item["estimate_reason"])
+                    for note in item.get("notes", []):
+                        st.text(note)
+                    _evidence(item.get("citations", []), sources)
+                    _review_study_time(item, report_id, store, model, selected_task_ids, result_key)
     fixed_proposals = artifacts.get("fixed_event_proposals", [])
-    for account in sorted({item.get("account", "") for item in fixed_proposals}):
+    for event_index, account in enumerate(sorted({item.get("account", "") for item in fixed_proposals})):
         if account and store is not None:
-            render_fixed_event_review(
-                [item for item in fixed_proposals if item.get("account") == account],
-                store, account=account, key="assistant_" + report_id + "_" + account,
-            )
+            with st.container(border=True, key=f"sf_panel_artifact_events_{report_id}_{event_index}"):
+                render_fixed_event_review(
+                    [item for item in fixed_proposals if item.get("account") == account],
+                    store, account=account, key="assistant_" + report_id + "_" + account,
+                )
     for item in artifacts.get("meeting_summaries", []):
-        with st.container(border=True):
+        with st.container(border=True, key=f"sf_panel_artifact_meeting_{report_id}_{item['id']}"):
+            st.html('<div class="sf-artifact-eyebrow">DISCUSSION NOTES</div>')
             st.write("**Discussion summary**")
-            st.text(item["title"])
-            st.text(item["summary"])
+            with st.container(key=f"sf_artifact_title_{report_id}_{item['id']}"):
+                st.text(item["title"])
+            with st.container(key=f"sf_artifact_summary_{report_id}_{item['id']}"):
+                st.text(item["summary"])
+            counts = (
+                (len(item.get("decisions", [])), "Decisions"),
+                (len(item.get("action_items", [])), "Action items"),
+                (len(item.get("open_questions", [])), "Open questions"),
+            )
+            st.html('<div class="sf-artifact-counts">' + ''.join(
+                f'<div class="sf-artifact-count"><strong>{count}</strong><span>{label}</span></div>'
+                for count, label in counts
+            ) + '</div>')
             if item.get("decisions"):
                 st.write("**Decisions**")
                 for decision in item["decisions"]:
@@ -445,25 +462,30 @@ def _render_artifacts(
                     {"Action": action["title"], "Owner": action.get("owner") or "Not specified",
                      "Deadline": action.get("due_at") or "Not specified"}
                     for action in item["action_items"]
-                ], hide_index=True)
+                ], hide_index=True, width="stretch")
                 for index, action in enumerate(item["action_items"], 1):
                     with st.expander(f"Action {index}: evidence"):
                         st.text(action["title"])
                         _evidence(action.get("citations", []), sources)
-            if item.get("open_questions"):
-                st.write("**Open questions**")
-                for question in item["open_questions"]:
-                    st.text(question)
-            if item.get("missing_information"):
-                st.write("**Details still to confirm**")
-                for detail in item["missing_information"]:
-                    st.text(detail)
-            if item.get("agenda"):
-                st.write("**Suggested agenda**")
-                st.text("\n".join(f"{index}. {line}" for index, line in enumerate(item["agenda"], 1)))
+            if item.get("open_questions") or item.get("missing_information") or item.get("agenda"):
+                questions, agenda = st.columns(2, gap="large")
+                with questions:
+                    if item.get("open_questions"):
+                        st.write("**Open questions**")
+                        for question in item["open_questions"]:
+                            st.text(question)
+                    if item.get("missing_information"):
+                        st.write("**Details still to confirm**")
+                        for detail in item["missing_information"]:
+                            st.text(detail)
+                with agenda:
+                    if item.get("agenda"):
+                        st.write("**Suggested agenda**")
+                        st.text("\n".join(f"{index}. {line}" for index, line in enumerate(item["agenda"], 1)))
             if item.get("follow_up"):
-                st.write("**Follow-up draft**")
-                st.text(item["follow_up"])
+                with st.container(border=True, key=f"sf_artifact_followup_{report_id}_{item['id']}"):
+                    st.write("**Follow-up draft**")
+                    st.text(item["follow_up"])
             _evidence(item.get("citations", []), sources)
             incomplete = analysis_status != "completed"
             formats = (
@@ -481,40 +503,44 @@ def _render_artifacts(
                         key=f"sf_meeting_download_{report_id}_{item['id']}_{extension}",
                         on_click="ignore",
                         type="primary" if extension == "docx" else "secondary",
+                        width="stretch", icon=":material/download:",
                     )
-    for item in artifacts.get("meeting_clarifications", []):
-        with st.container(border=True):
+    for index, item in enumerate(artifacts.get("meeting_clarifications", [])):
+        with st.container(border=True, key=f"sf_panel_artifact_clarification_{report_id}_{index}"):
+            st.html('<div class="sf-artifact-eyebrow">A LITTLE MORE CONTEXT</div>')
             st.write("**Discussion details needed**")
             for question in item.get("questions", []):
                 st.text(question)
-    for item in artifacts.get("plans", []):
-        st.write("**Suggested study plan**")
-        st.caption("This is a preview based on the selected tasks and commitments. Your saved plan has not changed.")
-        result = item["result"]
-        if result.get("blocks"):
-            st.dataframe(schedule_rows(result["blocks"]), hide_index=True)
-        if result.get("warnings"):
-            st.warning("Review these scheduling notes.")
-            for warning in result["warnings"]:
-                st.text(str(warning))
-        if result.get("unscheduled"):
-            st.write("**Work that could not be scheduled**")
-            st.dataframe(result["unscheduled"], hide_index=True)
-        if item.get("validation_errors"):
-            st.error("The proposed schedule has validation errors.")
-            for error in item["validation_errors"]:
-                st.text(str(error))
-    for item in artifacts.get("risks", []):
-        st.write("**Deadline concentration**")
-        st.text(item.get("note", "Based on selected tasks and calendar events."))
-        for cluster in item.get("clusters", []):
-            st.warning(f"{len(cluster['items'])} deadlines or events within {item['window_hours']} hours.")
-            st.dataframe([
-                {"Item": entry.get("title", ""), "When": entry["at"], "Type": entry["kind"]}
-                for entry in cluster["items"]
-            ], hide_index=True)
-        if not item.get("clusters"):
-            st.info("No cluster matching the selected threshold was found in the selected information.")
+    for index, item in enumerate(artifacts.get("plans", [])):
+        with st.container(border=True, key=f"sf_panel_artifact_plan_{report_id}_{index}"):
+            st.write("**Suggested study plan**")
+            st.caption("This is a preview based on the selected tasks and commitments. Your saved plan has not changed.")
+            result = item["result"]
+            if result.get("blocks"):
+                st.dataframe(schedule_rows(result["blocks"]), hide_index=True, width="stretch")
+            if result.get("warnings"):
+                st.warning("Review these scheduling notes.")
+                for warning in result["warnings"]:
+                    st.text(str(warning))
+            if result.get("unscheduled"):
+                st.write("**Work that could not be scheduled**")
+                st.dataframe(result["unscheduled"], hide_index=True, width="stretch")
+            if item.get("validation_errors"):
+                st.error("The proposed schedule has validation errors.")
+                for error in item["validation_errors"]:
+                    st.text(str(error))
+    for index, item in enumerate(artifacts.get("risks", [])):
+        with st.container(border=True, key=f"sf_panel_artifact_risks_{report_id}_{index}"):
+            st.write("**Deadline concentration**")
+            st.text(item.get("note", "Based on selected tasks and calendar events."))
+            for cluster in item.get("clusters", []):
+                st.warning(f"{len(cluster['items'])} deadlines or events within {item['window_hours']} hours.")
+                st.dataframe([
+                    {"Item": entry.get("title", ""), "When": entry["at"], "Type": entry["kind"]}
+                    for entry in cluster["items"]
+                ], hide_index=True, width="stretch")
+            if not item.get("clusters"):
+                st.info("No cluster matching the selected threshold was found in the selected information.")
 
 
 def render_assistant(store, data_dir: Path, root: Path, mails: dict, api_key: str, model: str,
@@ -522,7 +548,14 @@ def render_assistant(store, data_dir: Path, root: Path, mails: dict, api_key: st
     _preserve_workspace_inputs()
     account = preference_account(st.session_state.get("gmail_profile", {}).get("email_address", ""))
     _initialize_reply_preferences(data_dir, account)
-    st.subheader("Discussions" if workspace_mode == "Meetings & discussions" else "Assistant")
+    is_discussion_page = workspace_mode == "Meetings & discussions"
+    st.html('<div class="sf-eyebrow">THINK CLEARLY, MOVE FORWARD</div>')
+    st.title("Discussions" if is_discussion_page else "Assistant")
+    st.caption(
+        "Turn your conversations into clear decisions, next steps and meeting notes."
+        if is_discussion_page else
+        "Bring the right context. Shape a reply, explore an idea or plan your next step."
+    )
     if workspace_mode is not None and workspace_mode not in WORKSPACES:
         raise ValueError("Choose an available assistant workspace.")
     if workspace_mode is None and st.session_state.get("sf_reply_handoff"):
@@ -551,249 +584,277 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
     is_email = mode == "Email replies"
     is_meeting = mode == "Meetings & discussions"
     is_general = mode == "Other assistance"
-    st.subheader(mode)
-    if is_email:
-        st.caption("Draft and review a reply using your saved writing style and reply instructions.")
-    elif is_meeting:
-        st.caption("Summarize discussions, identify decisions and action items, and prepare a follow-up draft.")
+    if is_meeting:
         st.session_state.setdefault(prefix + "request", DEFAULT_MEETING_REQUEST)
-    else:
-        st.caption("Ask about saved tasks, study planning or other selected information.")
-        st.info("Review and save study-time updates and fixed appointments below. Study plans remain previews; Calendar sync is reviewed separately in Study Plan.")
     notice = st.session_state.pop(prefix + "effort_notice", None)
     if notice:
         st.success(notice)
-    messages, events, coverage = ([], [], {}) if is_email else render_workspace_sources(
-        root, data_dir, show_calendar=is_general,
-    )
-    documents = available_documents(AttachmentLibrary(store.path), mails)
-    available = selectable_sources({} if is_meeting else mails, documents, messages)
-    from studentflow.reply_handoff import consume_reply_handoff
+    context_column, request_column = st.columns([1, 1.15], gap="medium")
+    with context_column, st.container(border=True, key="sf_panel_assistant_sources_" + prefix):
+        st.html('<div class="sf-eyebrow">01 / CONTEXT</div>')
+        st.subheader("Choose your sources")
+        st.caption(
+            "Select a discussion, then choose the messages and notes to include."
+            if is_meeting else
+            "Choose the email and supporting information for this request."
+            if is_email else
+            "Bring together messages, saved tasks and the planning details you need."
+        )
+        messages, events, coverage = ([], [], {}) if is_email else render_workspace_sources(
+            root, data_dir, show_calendar=is_general,
+        )
+        documents = available_documents(AttachmentLibrary(store.path), mails)
+        available = selectable_sources({} if is_meeting else mails, documents, messages)
+        from studentflow.reply_handoff import consume_reply_handoff
 
-    reply_handoff = consume_reply_handoff(st.session_state, available, account) if is_email else None
-    if reply_handoff and not st.session_state.get(prefix + "request", "").strip():
-        st.session_state["sf_assistant_request"] = DEFAULT_REPLY_REQUEST
-    if is_email:
-        selected_sources = _choose_sources("Information to use", available, prefix + "sources")
-    else:
-        chat_sources = [item for item in available if item["provider"] == "google_chat"]
-        other_sources = [item for item in available if item["provider"] != "google_chat"]
-        chat_key = prefix + ("sources" if is_meeting else "messages")
-        other_key = prefix + ("attachments" if is_meeting else "sources")
-        # Carry existing explicit selections into the new separate controls.
-        old_selection = st.session_state.get(prefix + "sources", [])
-        migrated_key = other_key if is_meeting else chat_key
-        migrated_records = other_sources if is_meeting else chat_sources
-        if migrated_key not in st.session_state:
-            st.session_state[migrated_key] = [
-                item["source_id"] for item in migrated_records if item["source_id"] in old_selection
-            ]
-        selected_sources = _choose_discussion_messages(chat_sources, chat_key, prefix)
-        selected_sources += _choose_sources(
-            "Supporting attachments (optional)" if is_meeting else "Information to use",
-            other_sources, other_key,
+        reply_handoff = consume_reply_handoff(st.session_state, available, account) if is_email else None
+        if reply_handoff and not st.session_state.get(prefix + "request", "").strip():
+            st.session_state["sf_assistant_request"] = DEFAULT_REPLY_REQUEST
+        if is_email:
+            selected_sources = _choose_sources("Information to use", available, prefix + "sources")
+        else:
+            chat_sources = [item for item in available if item["provider"] == "google_chat"]
+            other_sources = [item for item in available if item["provider"] != "google_chat"]
+            chat_key = prefix + ("sources" if is_meeting else "messages")
+            other_key = prefix + ("attachments" if is_meeting else "sources")
+            # Carry existing explicit selections into the new separate controls.
+            old_selection = st.session_state.get(prefix + "sources", [])
+            migrated_key = other_key if is_meeting else chat_key
+            migrated_records = other_sources if is_meeting else chat_sources
+            if migrated_key not in st.session_state:
+                st.session_state[migrated_key] = [
+                    item["source_id"] for item in migrated_records if item["source_id"] in old_selection
+                ]
+            selected_sources = _choose_discussion_messages(chat_sources, chat_key, prefix)
+            selected_sources += _choose_sources(
+                "Supporting attachments (optional)" if is_meeting else "Information to use",
+                other_sources, other_key,
+            )
+        if not available:
+            st.caption(
+                "Read a Google Chat discussion above, or keep readable meeting notes in Attachments."
+                if is_meeting else "Open messages in Inbox or keep attachments to make sources available."
+            )
+        selected_email_count = sum(item.get("provider") == "gmail" for item in selected_sources)
+        if is_email and not selected_email_count:
+            st.caption(
+                "To reply to an email, use Reply with assistant in Inbox to bring that email here. "
+                "You can also open messages with View selected messages and choose a Gmail entry above. "
+                "Saved attachments and writing samples do not include the email itself."
+            )
+        if selected_sources:
+            with st.expander("Preview selected information"):
+                for item in selected_sources:
+                    st.text(source_preview_heading(item))
+                    st.text(item["text"][:3000])
+                    if len(item["text"]) > 3000:
+                        st.caption("Preview shortened. The assistant can read additional passages from this selected source.")
+        selected_tasks = []
+        include_preferences = False
+        preferences, progress = {}, {}
+        preference_error = None
+        include_calendar = False
+        selected_fixed_events = []
+        references = []
+        reference_error = None
+        if is_general:
+            selected_tasks = _choose(
+                "Saved tasks to use", store.tasks(), "id", prefix + "tasks",
+                lambda item: item["title"], 50,
+            )
+            include_preferences = st.checkbox(
+                "Include my study preferences and recorded daily study minutes", key=prefix + "preferences",
+            )
+            if include_preferences:
+                try:
+                    preferences = read_preferences(data_dir / "planning_preferences.json")
+                    progress = store.progress_by_day()
+                except (OSError, ValueError, TypeError, KeyError):
+                    preference_error = "Study preferences could not be read. Check them in Study Plan."
+                    st.error(preference_error)
+            include_calendar = st.checkbox(
+                "Include the loaded calendar commitments", disabled=not coverage,
+                key=prefix + "calendar",
+            ) and bool(coverage)
+            selected_fixed_events = _choose(
+                "Confirmed fixed events to use", store.list_fixed_events(), "id", prefix + "fixed_events",
+                lambda item: f"{item['title']} · {item['start_at']} · {item['account']}", 50,
+            )
+            with st.expander("Academic calendar references (optional)"):
+                st.caption("Add dates from the relevant academic year to interpret phrases such as 'the Friday after reading week'.")
+                rows = st.data_editor(
+                    st.session_state.get(prefix + "academic_base", [
+                        {"Name": "", "Start": None, "End": None, "Reference": ""},
+                    ]),
+                    num_rows="dynamic", hide_index=True, key=prefix + "academic_dates",
+                    column_config={
+                        "Name": st.column_config.TextColumn("Name", max_chars=100),
+                        "Start": st.column_config.DateColumn("Start", format="YYYY-MM-DD"),
+                        "End": st.column_config.DateColumn("End", format="YYYY-MM-DD"),
+                        "Reference": st.column_config.TextColumn("Reference", max_chars=300),
+                    },
+                )
+                st.session_state[prefix + "academic_rows"] = rows
+                try:
+                    references = academic_dates(rows)
+                except ValueError as error:
+                    reference_error = str(error)
+                    st.warning(reference_error)
+    with request_column, st.container(border=True, key="sf_panel_assistant_request_" + prefix):
+        st.html('<div class="sf-eyebrow">02 / REQUEST</div>')
+        st.subheader(
+            "Prepare your discussion summary" if is_meeting else
+            "Write a reply that sounds like you" if is_email else "How can StudentFlow help?"
         )
-    if not available:
         st.caption(
-            "Read a Google Chat discussion above, or keep readable meeting notes in Attachments."
-            if is_meeting else "Open messages in Inbox or keep attachments to make sources available."
+            "Get a summary, decisions, action items and a follow-up draft."
+            if is_meeting else
+            "Use your writing preferences to prepare an editable reply."
+            if is_email else
+            "Ask about selected information or prepare changes for review."
         )
-    selected_email_count = sum(item.get("provider") == "gmail" for item in selected_sources)
-    if is_email and not selected_email_count:
-        st.caption(
-            "To reply to an email, use Reply with assistant in Inbox to bring that email here. "
-            "You can also open messages with View selected messages and choose a Gmail entry above. "
-            "Saved attachments and writing samples do not include the email itself."
+        if is_general:
+            st.info("Review and save study-time updates and fixed appointments below. Study plans remain previews; Calendar sync is reviewed separately in Study Plan.")
+        style_samples = []
+        sample, approved = "", False
+        if is_email:
+            with st.expander("My writing style (optional)"):
+                sample = st.text_area(
+                    "Example from my sent mail", max_chars=6000, key="sf_assistant_style",
+                    help="Paste a message you wrote. Remove details that are not needed for the writing style.",
+                )
+                approved = st.checkbox(
+                    "This is my own writing and may be used for this request.", key="sf_assistant_style_consent",
+                )
+                if sample.strip() and approved:
+                    style_samples = [{
+                        "source_id": source_key("writing_sample", "", sample),
+                        "title": "User-selected sent-mail example", "text": sample.strip(),
+                    }]
+        snapshot = {
+            "sources": selected_sources, "tasks": selected_tasks,
+            "preferences": preferences, "completed_by_day": progress,
+            "calendar_events": events if include_calendar else [],
+            "fixed_events": selected_fixed_events,
+            "calendar_coverage": coverage if include_calendar else {},
+            "academic_dates": references, "style_samples": style_samples,
+            "now": datetime.now(ZONE).isoformat(),
+        }
+        signature = snapshot_signature(snapshot)
+        request = st.text_area(
+            "What would you like help with?", max_chars=4000, key=prefix + "request",
+            height=220 if is_meeting else 180,
+            placeholder=("Draft a reply to the selected email." if is_email
+                         else "Ask about the selected information."),
         )
-    if selected_sources:
-        with st.expander("Preview selected information"):
-            for item in selected_sources:
-                st.text(source_preview_heading(item))
-                st.text(item["text"][:3000])
-                if len(item["text"]) > 3000:
-                    st.caption("Preview shortened. The assistant can read additional passages from this selected source.")
-    selected_tasks = []
-    include_preferences = False
-    preferences, progress = {}, {}
-    preference_error = None
-    include_calendar = False
-    selected_fixed_events = []
-    references = []
-    reference_error = None
-    if is_general:
-        selected_tasks = _choose(
-            "Saved tasks to use", store.tasks(), "id", prefix + "tasks",
-            lambda item: item["title"], 50,
+        if is_email:
+            _reply_preferences_controls(data_dir, account)
+        elif is_meeting:
+            st.caption("The discussion request and results stay separate from your email reply preferences.")
+        consent_key = prefix + "consent_" + hashlib.sha256(
+            (signature + request + model).encode()
+        ).hexdigest()[:20]
+        consent = st.checkbox(
+            "Send this request and only the selected information to OpenAI.", key=consent_key,
         )
-        include_preferences = st.checkbox(
-            "Include my study preferences and recorded daily study minutes", key=prefix + "preferences",
-        )
+        if is_meeting:
+            st.caption("Standard API usage charges apply. Review the summary and supporting text. Action items and follow-up messages remain suggestions.")
+        elif is_email:
+            st.caption("Standard API usage charges apply. Generating a reply does not send it; sending requires your separate review and Send action.")
+        else:
+            st.caption("Standard API usage charges apply. Review suggestions before using them. Study-time changes and fixed appointments are saved only after your review. Plans remain previews.")
+        if not api_key:
+            st.caption("Add an OpenAI API key in Settings to use the assistant.")
+        selection_counts = ([
+            f"{sum(item.get('provider') == 'google_chat' for item in selected_sources)} discussion message(s)",
+            f"{sum(item.get('provider') == 'attachment' for item in selected_sources)} attachment(s)",
+        ] if is_meeting else [
+            f"{selected_email_count} email(s)",
+            f"{len(selected_sources) - selected_email_count} other source(s)",
+            f"{len(style_samples)} approved writing sample(s)",
+        ])
+        for count, label in (
+            (len(selected_tasks), "saved task(s)"),
+            (len(selected_fixed_events), "fixed event(s)"),
+            (len(snapshot["calendar_events"]), "calendar commitment(s)"),
+            (len(references), "academic reference(s)"),
+        ):
+            if count:
+                selection_counts.append(f"{count} {label}")
         if include_preferences:
-            try:
-                preferences = read_preferences(data_dir / "planning_preferences.json")
-                progress = store.progress_by_day()
-            except (OSError, ValueError, TypeError, KeyError):
-                preference_error = "Study preferences could not be read. Check them in Study Plan."
-                st.error(preference_error)
-        include_calendar = st.checkbox(
-            "Include the loaded calendar commitments", disabled=not coverage,
-            key=prefix + "calendar",
-        ) and bool(coverage)
-        selected_fixed_events = _choose(
-            "Confirmed fixed events to use", store.list_fixed_events(), "id", prefix + "fixed_events",
-            lambda item: f"{item['title']} · {item['start_at']} · {item['account']}", 50,
-        )
-        with st.expander("Academic calendar references (optional)"):
-            st.caption("Add dates from the relevant academic year to interpret phrases such as 'the Friday after reading week'.")
-            rows = st.data_editor(
-                st.session_state.get(prefix + "academic_base", [
-                    {"Name": "", "Start": None, "End": None, "Reference": ""},
-                ]),
-                num_rows="dynamic", hide_index=True, key=prefix + "academic_dates",
-                column_config={
-                    "Name": st.column_config.TextColumn("Name", max_chars=100),
-                    "Start": st.column_config.DateColumn("Start", format="YYYY-MM-DD"),
-                    "End": st.column_config.DateColumn("End", format="YYYY-MM-DD"),
-                    "Reference": st.column_config.TextColumn("Reference", max_chars=300),
-                },
+            selection_counts.append("study preferences and recorded daily minutes")
+        st.caption("Selected for this request: " + " · ".join(selection_counts) + ".")
+        if sample.strip() and not approved:
+            st.warning("Your writing sample is not included. Check its permission above if you want to use it.")
+        if style_samples and not selected_sources:
+            st.info(
+                "No email or other source is selected. Your writing sample can guide the tone, but to reply to an "
+                "existing email, select that email above."
             )
-            st.session_state[prefix + "academic_rows"] = rows
-            try:
-                references = academic_dates(rows)
-            except ValueError as error:
-                reference_error = str(error)
-                st.warning(reference_error)
-    style_samples = []
-    sample, approved = "", False
-    if is_email:
-        with st.expander("My writing style (optional)"):
-            sample = st.text_area(
-                "Example from my sent mail", max_chars=6000, key="sf_assistant_style",
-                help="Paste a message you wrote. Remove details that are not needed for the writing style.",
-            )
-            approved = st.checkbox(
-                "This is my own writing and may be used for this request.", key="sf_assistant_style_consent",
-            )
-            if sample.strip() and approved:
-                style_samples = [{
-                    "source_id": source_key("writing_sample", "", sample),
-                    "title": "User-selected sent-mail example", "text": sample.strip(),
-                }]
-    snapshot = {
-        "sources": selected_sources, "tasks": selected_tasks,
-        "preferences": preferences, "completed_by_day": progress,
-        "calendar_events": events if include_calendar else [],
-        "fixed_events": selected_fixed_events,
-        "calendar_coverage": coverage if include_calendar else {},
-        "academic_dates": references, "style_samples": style_samples,
-        "now": datetime.now(ZONE).isoformat(),
-    }
-    signature = snapshot_signature(snapshot)
-    request = st.text_area(
-        "What would you like help with?", max_chars=4000, key=prefix + "request",
-        height=180 if is_meeting else None,
-        placeholder=("Draft a reply to the selected email." if is_email
-                     else "Ask about the selected information."),
-    )
-    if is_email:
-        _reply_preferences_controls(data_dir, account)
-    elif is_meeting:
-        st.caption("The discussion request and results stay separate from your email reply preferences.")
-    consent_key = prefix + "consent_" + hashlib.sha256(
-        (signature + request + model).encode()
-    ).hexdigest()[:20]
-    consent = st.checkbox(
-        "Send this request and only the selected information to OpenAI.", key=consent_key,
-    )
-    if is_meeting:
-        st.caption("Standard API usage charges apply. Review the summary and supporting text. Action items and follow-up messages remain suggestions.")
-    elif is_email:
-        st.caption("Standard API usage charges apply. Generating a reply does not send it; sending requires your separate review and Send action.")
-    else:
-        st.caption("Standard API usage charges apply. Review suggestions before using them. Study-time changes and fixed appointments are saved only after your review. Plans remain previews.")
-    if not api_key:
-        st.caption("Add an OpenAI API key in Settings to use the assistant.")
-    selection_counts = ([
-        f"{sum(item.get('provider') == 'google_chat' for item in selected_sources)} discussion message(s)",
-        f"{sum(item.get('provider') == 'attachment' for item in selected_sources)} attachment(s)",
-    ] if is_meeting else [
-        f"{selected_email_count} email(s)",
-        f"{len(selected_sources) - selected_email_count} other source(s)",
-        f"{len(style_samples)} approved writing sample(s)",
-    ])
-    for count, label in (
-        (len(selected_tasks), "saved task(s)"),
-        (len(selected_fixed_events), "fixed event(s)"),
-        (len(snapshot["calendar_events"]), "calendar commitment(s)"),
-        (len(references), "academic reference(s)"),
-    ):
-        if count:
-            selection_counts.append(f"{count} {label}")
-    if include_preferences:
-        selection_counts.append("study preferences and recorded daily minutes")
-    st.caption("Selected for this request: " + " · ".join(selection_counts) + ".")
-    if sample.strip() and not approved:
-        st.warning("Your writing sample is not included. Check its permission above if you want to use it.")
-    if style_samples and not selected_sources:
-        st.info(
-            "No email or other source is selected. Your writing sample can guide the tone, but to reply to an "
-            "existing email, select that email above."
-        )
-    if st.button(
-        "Run assistant", type="primary", key=prefix + "run",
-        disabled=not api_key or not consent or not request.strip()
-        or bool(preference_error or reference_error) or (is_meeting and not selected_sources),
-    ):
-        from studentflow.agent_tools import AssistantTools
+        if st.button(
+            "Run assistant", type="primary", key=prefix + "run", width="stretch",
+            disabled=not api_key or not consent or not request.strip()
+            or bool(preference_error or reference_error) or (is_meeting and not selected_sources),
+        ):
+            from studentflow.agent_tools import AssistantTools
 
-        st.session_state.pop(prefix + "result", None)
-        started = time.monotonic()
-        try:
-            with st.spinner("Reading the selected information and preparing suggestions..."):
-                result = run_assistant(request.strip(), AssistantTools(snapshot), api_key=api_key, model=model)
-            metadata = run_metadata(result, model, snapshot["now"], time.monotonic() - started)
-            report_id = hashlib.sha256((prefix + signature + snapshot["now"]).encode()).hexdigest()[:12]
-            st.session_state[prefix + "result"] = {
-                "result": result, "signature": signature, "request": request,
-                "sources": {item["source_id"]: item for item in selected_sources},
-                "metadata": metadata, "id": report_id, "model": model,
-            }
+            st.session_state.pop(prefix + "result", None)
+            started = time.monotonic()
             try:
-                data_dir.mkdir(parents=True, exist_ok=True)
-                with (data_dir / "assistant_runs.jsonl").open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(metadata, ensure_ascii=False) + "\n")
-            except OSError:
-                st.warning("Suggestions are available, but their usage statistics could not be saved.")
-        except Exception:  # noqa: BLE001 - provider exceptions can contain credentials.
-            # SDK/provider errors may contain secrets or selected source content.
-            st.error("The assistant could not complete this request. Check Settings or try a smaller selection. No records were changed.")
-    report = st.session_state.get(prefix + "result")
-    if report:
-        stale = (report["signature"] != signature or report["request"] != request
-                 or report.get("model") != model)
-        if stale:
-            st.warning("Your request, model or selected information changed. Run the assistant again for an up-to-date result.")
-            return
-        result = report["result"]
-        if result.status != "completed":
-            st.warning("This request was not fully completed. Review the available suggestions and any missing information.")
-        st.write("**Assistant response**")
-        render_response(result.answer, report["sources"])
-        _render_artifacts(
-            result.artifacts, report["sources"], report["id"], store=store,
-            model=report["model"], selected_task_ids={item["id"] for item in selected_tasks},
-            root=root, data_dir=data_dir,
-            result_key=prefix + "result",
-            analysis_status=result.status,
-        )
-        metadata = report["metadata"]
-        st.caption(f"Prepared in {metadata['elapsed_seconds']} seconds. Results remain in this browser session.")
-        with st.expander("Processing details"):
-            st.caption("Tool names, status, safe error reasons and usage are shown. Source text and credentials are excluded from the usage log.")
-            safe_events = diagnostic_events(result.events)
-            if any(safe_events):
-                st.dataframe(safe_events, hide_index=True)
-            if metadata["usage"]:
-                st.dataframe([metadata["usage"]], hide_index=True)
-                if metadata["usage"].get("usage_complete") is False:
-                    st.warning("Some requests did not return usage information. Reported tokens may be incomplete; check your API billing for actual usage.")
+                with st.spinner("Reading the selected information and preparing suggestions..."):
+                    result = run_assistant(request.strip(), AssistantTools(snapshot), api_key=api_key, model=model)
+                metadata = run_metadata(result, model, snapshot["now"], time.monotonic() - started)
+                report_id = hashlib.sha256((prefix + signature + snapshot["now"]).encode()).hexdigest()[:12]
+                st.session_state[prefix + "result"] = {
+                    "result": result, "signature": signature, "request": request,
+                    "sources": {item["source_id"]: item for item in selected_sources},
+                    "metadata": metadata, "id": report_id, "model": model,
+                }
+                try:
+                    data_dir.mkdir(parents=True, exist_ok=True)
+                    with (data_dir / "assistant_runs.jsonl").open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(metadata, ensure_ascii=False) + "\n")
+                except OSError:
+                    st.warning("Suggestions are available, but their usage statistics could not be saved.")
+            except Exception:  # noqa: BLE001 - provider exceptions can contain credentials.
+                # SDK/provider errors may contain secrets or selected source content.
+                st.error("The assistant could not complete this request. Check Settings or try a smaller selection. No records were changed.")
+    with st.container(border=True, key="sf_panel_assistant_result_" + prefix):
+        st.html('<div class="sf-eyebrow">03 / REVIEW</div>')
+        st.subheader("Your discussion summary" if is_meeting else "Your assistant results")
+        report = st.session_state.get(prefix + "result")
+        if report:
+            stale = (report["signature"] != signature or report["request"] != request
+                     or report.get("model") != model)
+            if stale:
+                st.warning("Your request, model or selected information changed. Run the assistant again for an up-to-date result.")
+                return
+            result = report["result"]
+            if result.status != "completed":
+                st.warning("This request was not fully completed. Review the available suggestions and any missing information.")
+            st.write("**Assistant response**")
+            render_response(result.answer, report["sources"])
+            _render_artifacts(
+                result.artifacts, report["sources"], report["id"], store=store,
+                model=report["model"], selected_task_ids={item["id"] for item in selected_tasks},
+                root=root, data_dir=data_dir,
+                result_key=prefix + "result",
+                analysis_status=result.status,
+            )
+            metadata = report["metadata"]
+            st.caption(f"Prepared in {metadata['elapsed_seconds']} seconds. Results remain in this browser session.")
+            with st.expander("Processing details"):
+                st.caption("Tool names, status, safe error reasons and usage are shown. Source text and credentials are excluded from the usage log.")
+                safe_events = diagnostic_events(result.events)
+                if any(safe_events):
+                    st.dataframe(safe_events, hide_index=True)
+                if metadata["usage"]:
+                    st.dataframe([metadata["usage"]], hide_index=True)
+                    if metadata["usage"].get("usage_complete") is False:
+                        st.warning("Some requests did not return usage information. Reported tokens may be incomplete; check your API billing for actual usage.")
+        else:
+            st.html(
+                '<div class="sf-empty-state"><strong>Your next step, made clearer</strong>'
+                '<p>Choose your sources and run the assistant. '
+                'Your results will appear here, ready for you to review.</p></div>'
+            )

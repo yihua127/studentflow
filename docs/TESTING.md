@@ -1,5 +1,11 @@
 # Validation status
 
+## Discussions and Assistant workspaces — 5 November 2026
+
+**120 affected offline regression tests passed**, covering workspace isolation, source selection and reply handoff, saved preferences, edited drafts, consent and stale-result invalidation, reviewed sending and study-time updates, structured minutes and downloads, Google connection/account changes, calendar coverage and application navigation. Ruff and whitespace checks passed.
+
+Browser checks used isolated sample data and simulated services at 1536×1000 and 1100×800. The source/request panels, three assistance modes, discussion notes, reply editor and connection controls rendered without application errors or document-level horizontal overflow. Word download and retention of an edited reply across mode changes were also verified. These checks made no real Google or paid model requests.
+
 ## Overview calendar and to-do list — 5 November 2026
 
 **30 affected offline regression tests passed**, covering the new calendar and existing application navigation. Calendar checks include timezone conversion, midnight-exclusive multi-day events, unknown deadlines, escaped source titles, date and month selection, and omission of completed tasks. Task shortcuts preserve the selected record and clear unrelated filters without changing saved tasks.

@@ -640,6 +640,64 @@
   text-align: center; color: #6e7b91; font-size: 0.9rem; line-height: 1.8;
 }
 .sf-cal-empty span { color: #8a95a7; font-size: 0.78rem; }
+/* Assistant workspaces share the same surfaces and navigation as Inbox. */
+.st-key-sf_assistant_workspace [data-testid="stRadioGroup"] {
+  width: fit-content; max-width: 100%; gap: 0.25rem;
+  padding: 0.3rem; border: 1px solid var(--sf-line);
+  border-radius: 0.7rem; background: #eceff6;
+}
+.st-key-sf_assistant_workspace [data-testid="stRadioOption"] {
+  padding: 0.55rem 0.9rem; border: 1px solid transparent; border-radius: 0.5rem;
+}
+.st-key-sf_assistant_workspace [data-testid="stRadioOption"] > div > div:first-child { display: none; }
+.st-key-sf_assistant_workspace [data-testid="stRadioOption"] p {
+  font-size: 0.86rem; font-weight: 550; color: #647089;
+}
+.st-key-sf_assistant_workspace [data-testid="stRadioOption"][data-selected] {
+  background: #fff; border-color: #dce2f0; box-shadow: 0 2px 5px #25365308;
+}
+.st-key-sf_assistant_workspace [data-testid="stRadioOption"][data-selected] p { color: var(--sf-accent); }
+.st-key-sf_assistant_workspace [data-testid="stRadioOption"][data-focus-visible] {
+  outline: 2px solid var(--sf-accent); outline-offset: 1px;
+}
+[class*="st-key-sf_panel_assistant_"] h3 { font-size: 1.1rem; }
+[class*="st-key-sf_panel_assistant_request_"] textarea { line-height: 1.65; }
+[class*="st-key-sf_panel_assistant_"] [data-testid="stButton"] button [data-testid="stMarkdownContainer"],
+[class*="st-key-sf_panel_assistant_"] [data-testid="stButton"] button p,
+[class*="st-key-sf_panel_artifact_"] [data-testid="stDownloadButton"] button [data-testid="stMarkdownContainer"],
+[class*="st-key-sf_panel_artifact_"] [data-testid="stDownloadButton"] button p {
+  white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.45;
+}
+.sf-workspace-account {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem;
+  color: var(--sf-muted); font-size: 0.8rem; line-height: 1.6; overflow-wrap: anywhere;
+}
+.sf-artifact-eyebrow {
+  color: var(--sf-accent); font-size: 0.7rem; font-weight: 650;
+  letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.4rem;
+}
+.sf-artifact-counts { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.6rem 0 0.9rem; }
+.sf-artifact-count {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  padding: 0.55rem 0.8rem; background: #f3f5fb; border-radius: 0.55rem;
+  font-size: 0.78rem; color: var(--sf-muted);
+}
+.sf-artifact-count strong { color: var(--sf-accent); font-size: 1.05rem; font-weight: 650; }
+[class*="st-key-sf_panel_artifact_"] [data-testid="stText"],
+[class*="st-key-sf_panel_assistant_"] [data-testid="stText"] {
+  font-family: "Segoe UI", sans-serif; font-size: 0.9rem; line-height: 1.7;
+  color: var(--sf-ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+[class*="st-key-sf_artifact_title_"] [data-testid="stText"] {
+  font-size: 1.3rem; font-weight: 650; line-height: 1.4;
+}
+[class*="st-key-sf_artifact_followup_"] {
+  background: #f5f7fc; border-left: 3px solid #93a1d0; padding: 1rem; border-radius: 0.45rem;
+}
+@media (max-width: 1100px) {
+  [class*="st-key-sf_panel_assistant_"] { padding: 1rem; }
+  .st-key-sf_assistant_workspace [data-testid="stRadioOption"] { padding: 0.45rem 0.6rem; }
+}
 @media (max-height: 760px) {
   [data-testid="stSidebarUserContent"] { padding-top: 1rem; }
   .sf-brand { padding-bottom: 1.1rem; }
