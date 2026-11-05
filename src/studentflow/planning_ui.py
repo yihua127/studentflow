@@ -12,6 +12,7 @@ import sqlite3
 import tempfile
 from copy import deepcopy
 from datetime import datetime, time, timedelta
+from html import escape
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -34,6 +35,28 @@ from studentflow.planner import (
 )
 
 ZONE = ZoneInfo("Asia/Singapore")
+
+
+def preserve_planning_inputs() -> None:
+    """Keep ordinary received input values across sidebar navigation, never approvals.
+
+    Streamlit forms send their values on submission; values that have not left the
+    browser are not covered by this helper. Saved preferences remain authoritative.
+    """
+    keys = {
+        "sf_plan_meals", "sf_plan_pref_start", "sf_plan_pref_end", "sf_plan_pref_daily",
+        "sf_plan_pref_block", "sf_plan_pref_rest", "sf_plan_pref_commute",
+        "sf_plan_event_title", "sf_plan_event_day", "sf_plan_event_start",
+        "sf_plan_event_end", "sf_plan_event_online", "sf_plan_event_commute",
+        "sf_plan_weekdays", "sf_plan_weekly_start", "sf_plan_weekly_end",
+        "sf_plan_edit_weekly", "sf_plan_override_kind", "sf_plan_slot_day",
+        "sf_plan_slot_start", "sf_plan_slot_end", "sf_plan_horizon_days",
+        "sf_plan_view_saved", "sf_plan_view_draft",
+    }
+    prefixes = ("sf_plan_edit_days_", "sf_plan_edit_start_", "sf_plan_edit_end_")
+    for key in list(st.session_state):
+        if key in keys or key.startswith(prefixes):
+            st.session_state[key] = st.session_state[key]
 
 
 def default_preferences() -> dict:
@@ -239,18 +262,20 @@ def _commitments(preferences: dict, path: Path) -> None:
     else:
         st.caption("Add classes, meetings or other commitments to keep that time free.")
     with st.expander("Add a commitment"), st.form("sf_plan_add_commitment"):
-        title = st.text_input("Title", placeholder="Class or meeting", max_chars=200)
+        title = st.text_input("Title", placeholder="Class or meeting", max_chars=200,
+                              key="sf_plan_event_title")
         day = st.date_input("Date", value=datetime.now(ZONE).date(), key="sf_plan_event_day")
         left, right = st.columns(2)
         start = left.time_input("Start", value=time(13), key="sf_plan_event_start")
         end = right.time_input("End", value=time(14), key="sf_plan_event_end")
-        online = st.checkbox("Online (no travel time)", value=True)
+        online = st.checkbox("Online (no travel time)", value=True, key="sf_plan_event_online")
         commute = st.number_input(
             "Travel time each way for an in-person commitment (min)",
             min_value=0,
             max_value=240,
             value=preferences["settings"]["default_commute_minutes"],
             step=5,
+            key="sf_plan_event_commute",
         )
         if st.form_submit_button("Add commitment"):
             try:
@@ -290,36 +315,42 @@ def _settings(preferences: dict, path: Path) -> None:
     with st.expander("Study preferences"), st.form("sf_plan_settings"):
         left, right = st.columns(2)
         start = left.time_input(
-            "Earliest study time", time.fromisoformat(settings["study_start"])
+            "Earliest study time", time.fromisoformat(settings["study_start"]),
+            key="sf_plan_pref_start",
         )
-        end = right.time_input("Latest study time", time.fromisoformat(settings["study_end"]))
-        daily = st.number_input(
+        end = right.time_input("Latest study time", time.fromisoformat(settings["study_end"]),
+                               key="sf_plan_pref_end")
+        daily = left.number_input(
             "Daily study limit (min)",
             min_value=30,
             max_value=360,
             value=settings["daily_limit_minutes"],
             step=30,
+            key="sf_plan_pref_daily",
         )
-        block = st.number_input(
+        block = right.number_input(
             "Maximum study session (min)",
             min_value=15,
             max_value=120,
             value=settings["max_block_minutes"],
             step=15,
+            key="sf_plan_pref_block",
         )
-        rest = st.number_input(
+        rest = left.number_input(
             "Break between study sessions (min)",
             min_value=30,
             max_value=180,
             value=settings["break_minutes"],
             step=5,
+            key="sf_plan_pref_rest",
         )
-        commute = st.number_input(
+        commute = right.number_input(
             "Default travel time each way (min)",
             min_value=0,
             max_value=240,
             value=settings["default_commute_minutes"],
             step=5,
+            key="sf_plan_pref_commute",
         )
         meals_text = st.text_area(
             "Meal breaks (HH:MM-HH:MM, one per line)",
@@ -354,40 +385,87 @@ def _settings(preferences: dict, path: Path) -> None:
                 _save(path, updated, "Study preferences saved. Generate and save a new plan to apply the changes.")
 
 
-def _saved_plan(store) -> None:
+def _duration(minutes: int) -> str:
+    hours, remainder = divmod(int(minutes), 60)
+    return f"{hours}h {remainder:02d}m" if hours else f"{remainder}m"
+
+
+def _agenda_html(blocks: list[dict]) -> str:
+    """A readable schedule using saved/planned facts; source titles remain plain text."""
+    days: dict[str, list[tuple[dict, datetime, datetime]]] = {}
+    for block in sorted(blocks, key=lambda item: item["start"]):
+        start = datetime.fromisoformat(block["start"]).astimezone(ZONE)
+        end = datetime.fromisoformat(block["end"]).astimezone(ZONE)
+        days.setdefault(start.date().isoformat(), []).append((block, start, end))
+    sections = []
+    for entries in days.values():
+        total = sum(entry[0]["minutes"] for entry in entries)
+        day = entries[0][1]
+        rows = []
+        for block, start, end in entries:
+            rows.append(
+                '<div class="sf-agenda-row">'
+                f'<div class="sf-agenda-time">{start:%H:%M}<span>{end:%H:%M}</span></div>'
+                '<div class="sf-agenda-content">'
+                f'<div class="sf-agenda-title">{escape(str(block["title"]))}</div>'
+                f'<div class="sf-agenda-meta">{_duration(block["minutes"])} · Study session</div>'
+                '</div></div>'
+            )
+        sections.append(
+            '<section class="sf-agenda-day">'
+            f'<div class="sf-agenda-heading"><strong>{day:%A, %d %b %Y}</strong>'
+            f'<span>{_duration(total)}</span></div>' + ''.join(rows) + '</section>'
+        )
+    return '<div class="sf-agenda">' + ''.join(sections) + '</div>'
+
+
+def _schedule_display(blocks: list[dict], *, key: str) -> None:
+    view = st.radio("Schedule view", ["Agenda", "Table"], horizontal=True,
+                    label_visibility="collapsed", key="sf_plan_view_" + key)
+    if view == "Table":
+        st.dataframe(schedule_rows(blocks), hide_index=True, width="stretch")
+    else:
+        with st.container(height=430, border=False, key="sf_plan_agenda_" + key):
+            st.html(_agenda_html(blocks))
+
+
+def _saved_plan(store, *, fresh: bool = True) -> None:
     plan = store.latest_plan()
     if not plan:
         return
-    st.markdown("**Saved study plan**")
-    st.caption(
-        "This plan is saved on this device. Daily progress appears at the study end time "
-        "while the app is open, or on your next visit if it was closed."
-    )
-    blocks = plan.get("result", {}).get("blocks", [])
-    if blocks:
-        st.dataframe(schedule_rows(blocks), hide_index=True, width="stretch")
-        st.download_button(
-            "Download saved schedule (CSV)", schedule_csv(blocks),
-            "studentflow_saved_schedule.csv", "text/csv", key="sf_saved_plan_download",
-        )
-    reviews = store.daily_reviews()
-    if reviews:
-        with st.expander("Recorded daily progress"):
-            st.dataframe([
-                {"Date": review["date"], "Completed (min)": sum(review["minutes"].values())}
-                for review in reviews
-            ], hide_index=True, width="stretch")
+    with st.container(border=True, key="sf_panel_plan_saved"):
+        st.markdown("**Saved study plan**")
+        if not fresh:
+            st.warning("Tasks or planning settings have changed. Generate and save a new plan before syncing study sessions.")
+        blocks = plan.get("result", {}).get("blocks", [])
+        st.caption(f"{len(blocks)} saved session(s) · "
+                   f"{_duration(sum(block['minutes'] for block in blocks))} scheduled · Singapore time")
+        if blocks:
+            _schedule_display(blocks, key="saved")
+            st.download_button(
+                "Download saved schedule (CSV)", schedule_csv(blocks),
+                "studentflow_saved_schedule.csv", "text/csv", key="sf_saved_plan_download",
+            )
+        st.caption("Daily progress appears at the study end time while the app is open, "
+                   "or on your next visit if it was closed.")
+        reviews = store.daily_reviews()
+        if reviews:
+            with st.expander("Recorded daily progress"):
+                st.dataframe([
+                    {"Date": review["date"], "Completed (min)": sum(review["minutes"].values())}
+                    for review in reviews
+                ], hide_index=True, width="stretch")
 
 
 def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | None = None) -> None:
     """Render personal schedule inputs and a separately confirmed local draft."""
-    st.subheader("Study Plan")
+    st.html('<div class="sf-eyebrow">MAKE ROOM TO STUDY</div>')
+    st.title("Study plan")
     st.caption(
         "Plan confirmed tasks around your availability and commitments. All times are Singapore time."
     )
     if notice := st.session_state.pop("sf_plan_notice", None):
         st.success(notice)
-    _saved_plan(store)
     path = Path(data_dir) / "planning_preferences.json"
     try:
         preferences = read_preferences(path)
@@ -404,15 +482,13 @@ def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | Non
             "Saved planning preferences could not be loaded. Restore your settings to continue."
         )
         if st.button("Reset planning preferences", key="sf_plan_reset"):
+            for key in list(st.session_state):
+                if key.startswith("sf_plan_pref_") or key == "sf_plan_meals":
+                    st.session_state.pop(key, None)
             _save(path, default_preferences(), "Planning preferences reset.")
+        # A damaged settings file must not hide the last saved schedule/export.
+        _saved_plan(store)
         return
-    _settings(preferences, path)
-    left, right = st.columns(2)
-    with left:
-        _availability(preferences, path)
-    with right:
-        _commitments(preferences, path)
-
     from studentflow.fixed_events_ui import render_fixed_events
     from studentflow.scheduling_context import (
         saved_plan_is_fresh,
@@ -421,6 +497,57 @@ def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | Non
     )
 
     fixed_events = store.list_fixed_events()
+    saved = store.latest_plan()
+    ready = [task for task in tasks if task.get("status") == "confirmed" and not is_completed(task)]
+    remaining = sum(max(0, (task.get("estimated_minutes") or 0) -
+                        (task.get("completed_minutes") or 0)) for task in ready)
+    a, b, c, d = st.columns(4)
+    a.metric("Ready to plan", len(ready))
+    b.metric("Remaining study", _duration(remaining))
+    c.metric("Saved sessions", len((saved or {}).get("result", {}).get("blocks", [])))
+    d.metric("Fixed commitments", len(preferences["busy_events"]) + len(fixed_events))
+    schedule, availability, commitments = st.tabs(
+        ["Schedule", "Availability & preferences", "Commitments & calendar"], key="sf_plan_tabs"
+    )
+    with schedule:
+        with st.container(border=True, key="sf_panel_plan_builder"):
+            _build_plan(tasks, store, with_fixed_events(preferences, fixed_events))
+        if saved:
+            fresh = saved_plan_is_fresh(
+                saved, tasks, preferences, fixed_events,
+                store.progress_by_day(), datetime.now(ZONE).isoformat(),
+            )
+            _saved_plan(store, fresh=fresh)
+        elif not st.session_state.get("planner_draft"):
+            st.html('<div class="sf-empty-state"><strong>Your next study session starts here.</strong>'
+                    '<p>Set your available time, generate a plan, then review and save it.</p></div>')
+
+    with availability:
+        with st.container(border=True, key="sf_panel_plan_preferences"):
+            settings = preferences["settings"]
+            st.markdown("**Your study rhythm**")
+            st.caption(f"{settings['study_start']}–{settings['study_end']} · "
+                       f"Up to {_duration(settings['daily_limit_minutes'])} a day · "
+                       f"{settings['break_minutes']} min between sessions")
+            _settings(preferences, path)
+        with st.container(border=True, key="sf_panel_plan_availability"):
+            _availability(preferences, path)
+
+    with commitments:
+        left, right = st.columns([1.1, 1], gap="large")
+        with left, st.container(border=True, key="sf_panel_plan_commitments"):
+            _commitments(preferences, path)
+        with right, st.container(border=True, key="sf_panel_plan_events"):
+            _fixed_event_controls(store, fixed_events, render_fixed_events)
+        if root is not None:
+            with st.container(border=True, key="sf_panel_plan_calendar"):
+                st.markdown("**Connect your schedule**")
+                st.caption("Preview changes and confirm before updating your StudentFlow calendar.")
+                _calendar_controls(store, root, data_dir, path, fixed_events,
+                                   source_fingerprint, saved_plan_is_fresh)
+
+
+def _fixed_event_controls(store, fixed_events, render_fixed_events) -> None:
     accounts = sorted({event["account"] for event in fixed_events})
     connected = str(st.session_state.get("gmail_profile", {}).get("email_address") or "").casefold()
     if connected and connected not in accounts:
@@ -428,48 +555,60 @@ def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | Non
     if accounts:
         account = accounts[0] if len(accounts) == 1 else st.selectbox("Fixed-event account", accounts)
         render_fixed_events(store, account=account)
+    else:
+        st.markdown("**Saved fixed events**")
+        st.caption("Reviewed appointments from Inbox or Assistant appear here and protect your study time.")
 
-    if root is not None:
-        from studentflow.calendar_sync_ui import render_calendar_sync
 
-        def current_fingerprint():
-            fingerprint = source_fingerprint(
-                store.tasks(), read_preferences(path), store.list_fixed_events(), store.progress_by_day(),
-            )
-            return fingerprint + ":" + str((store.latest_plan() or {}).get("id", ""))
+def _calendar_controls(store, root, data_dir, path, fixed_events,
+                       source_fingerprint, saved_plan_is_fresh) -> None:
+    from studentflow.calendar_sync_ui import render_calendar_sync
 
-        def is_fresh(plan):
-            return saved_plan_is_fresh(
-                plan, store.tasks(), read_preferences(path), store.list_fixed_events(),
-                store.progress_by_day(), datetime.now(ZONE).isoformat(),
-            )
-
-        render_calendar_sync(
-            store, root, data_dir, fixed_events=fixed_events,
-            current_fingerprint=current_fingerprint, saved_plan_is_fresh=is_fresh,
+    def current_fingerprint():
+        fingerprint = source_fingerprint(
+            store.tasks(), read_preferences(path), store.list_fixed_events(), store.progress_by_day(),
         )
-    # Confirmed appointments block the planner but are never written into the
-    # user's manually edited preference file or counted as study effort.
-    preferences = with_fixed_events(preferences, fixed_events)
+        return fingerprint + ":" + str((store.latest_plan() or {}).get("id", ""))
 
-    st.markdown("**Plan your tasks**")
+    def is_fresh(plan):
+        return saved_plan_is_fresh(
+            plan, store.tasks(), read_preferences(path), store.list_fixed_events(),
+            store.progress_by_day(), datetime.now(ZONE).isoformat(),
+        )
+
+    render_calendar_sync(
+        store, root, data_dir, fixed_events=fixed_events,
+        current_fingerprint=current_fingerprint, saved_plan_is_fresh=is_fresh,
+    )
+
+
+def _build_plan(tasks: list[dict], store, preferences: dict) -> None:
+    """Keep draft validation and explicit save separate from visual organization."""
+    st.markdown("**Plan your next sessions**")
     if not tasks:
         st.info("Save a task from an email before creating a study plan.")
     else:
         ready = sum(task.get("status") == "confirmed" and not is_completed(task) for task in tasks)
+        st.caption(f"{ready} confirmed unfinished task(s). Schedule remaining study time around your routine.")
+    with st.expander("How your plan is built"):
         st.caption(
-            f"{ready} confirmed unfinished task(s). Remaining study time is scheduled, with earlier deadlines first. "
-            "Today's elapsed time is skipped; future days start from the earliest available time after meals and commitments. "
-            "Sessions prefer whole-hour starts, using other times when needed to fit work before deadlines. "
-            "Tasks with missing details will be listed for review."
+            "Earlier deadlines come first. Today's elapsed time is skipped; future days start "
+            "from the earliest available time after meals and commitments. Sessions prefer whole-hour "
+            "starts, using other times when needed to fit work before deadlines. Tasks with missing "
+            "details are listed for review."
         )
     # Start at the next whole minute so saving a draft never schedules in the past.
     now = (datetime.now(ZONE) + timedelta(minutes=1)).replace(second=0, microsecond=0).isoformat()
     progress = store.progress_by_day()
     slots = resolve_availability(preferences, now)
     signature = planning_signature(tasks, preferences | {"completed_by_day": progress}, now)
-    generate = st.button("Generate study plan", disabled=not tasks or not slots, type="primary")
-    replan = st.button("Replan remaining tasks", disabled=not tasks or not slots, key="sf_plan_replan")
+    left, right = st.columns(2)
+    generate = left.button("Generate study plan", disabled=not tasks or not slots,
+                           type="primary", width="stretch")
+    replan = right.button("Replan remaining tasks", disabled=not tasks or not slots,
+                          key="sf_plan_replan", width="stretch")
+    if not slots:
+        st.caption("Add weekly hours or a date-specific window in Availability & preferences to get started.")
     requested = st.session_state.pop("sf_replan_requested", False)
     if generate or replan or requested:
         st.session_state["planner_draft"] = make_draft(tasks, preferences, now, progress)
@@ -488,7 +627,7 @@ def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | Non
     if draft["validation_errors"]:
         st.error("This plan could not pass the schedule checks. Adjust your inputs and try again.")
     if result["blocks"]:
-        st.dataframe(schedule_rows(result["blocks"]), hide_index=True, width="stretch")
+        _schedule_display(result["blocks"], key="draft")
     else:
         st.info("No study sessions could be scheduled. Review the items below.")
     if result["unscheduled"]:

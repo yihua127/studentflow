@@ -55,22 +55,24 @@ Each message can produce several tasks with separate deadlines. Repeated copies 
 
 Body and attachment mentions can be combined when their evidence identifies the same action, deliverable and assignment occurrence without conflicting details. Different deadlines or conflicting stated durations remain separate for review. Read both sources when suggestions may overlap, and select only the tasks you intend to keep.
 
-Choose **Unfinished** or **Completed**, then select a task under **Edit task**. Update its name, deadline, total estimated study time or completed minutes. Review the details, check **I have reviewed these task details**, and select **Save changes**. Original supporting text and source references remain attached to the same task.
+The summary cards show unfinished tasks, known remaining study time and tasks needing details. Unknown estimates are excluded from the time total. Choose **Unfinished** or **Completed** in the left list, search by task name or source message, and filter by readiness. Click a task card or choose it under **Edit task** to open the right-hand details panel. Update its name, deadline, total estimated study time or completed minutes. Review the details, check **I have reviewed these task details**, and select **Save changes**. Original supporting text and source references remain attached to the same task. Save your form before leaving the page; unsubmitted browser edits are not saved records.
 
 For tasks with a reviewed estimate, **Study-time estimate history** shows the source-stated duration, AI suggestion, final confirmed minutes and review decision, together with the saved reasoning and assumptions. An AI suggestion is kept separate from the source facts and the total used for scheduling.
 
 **Confirmed** means a deadline and a positive estimate are available for planning. **Completed** means the recorded completed minutes have reached the total estimate. These describe different things. For example, an estimate of 120 minutes with 40 completed leaves 80 minutes to plan. Entering completed minutes replaces that task's cumulative total. To reopen a task or allow more study time, adjust the completed total or increase its estimate.
 
-The task list shows total, completed and remaining minutes. **Download tasks** exports both categories as CSV.
+Task cards show status, deadline, remaining time and progress. **Full task table** shows all original columns for the filtered list. **Download tasks** exports both categories as CSV, regardless of the current filter.
 
 To delete a task from either category, select it under **Edit task**, expand **Delete task**, check **I want to delete this task**, and select **Delete task**. It is removed from the task list, saved plan and upcoming daily reviews. Saved attachments and previously recorded study time remain available.
 
 ## Study Plan
 
-1. Under **Available study time**, use **Add weekly availability** to select weekdays and a time range. Add another rule for a second daily range. These rules repeat each week within the planning horizon.
-2. Use **Change a particular day** for extra free time, a shorter available period or a whole day off. Add classes, meetings and other commitments; for in-person events, specify travel time each way. Reviewed fixed events are also treated as commitments.
+The page has three sections: **Schedule** for proposed and saved plans, **Availability & preferences** for your study routine, and **Commitments & calendar** for protected time and calendar sync. Daily progress remains below these sections.
+
+1. In **Availability & preferences → Available study time**, use **Add weekly availability** to select weekdays and a time range. Add another rule for a second daily range. These rules repeat each week within the planning horizon.
+2. Use **Change a particular day** for extra free time, a shorter available period or a whole day off. In **Commitments & calendar**, add classes, meetings and other commitments; for in-person events, specify travel time each way. Reviewed fixed events are also treated as commitments.
 3. Review **Study preferences**, including the daily limit, study-session duration and breaks. Edit **Meal breaks** using one `HH:MM-HH:MM` interval per line, for example `12:15-13:00`. Add, change or remove intervals and select **Save preferences**.
-4. Select **Generate study plan**. Review both the scheduled sessions and any work that remains unscheduled.
+4. In **Schedule**, select **Generate study plan**. Review the daily **Agenda**, or switch to **Table** for all session details. Review both the scheduled sessions and any work that remains unscheduled.
 5. Confirm your review and select **Save plan**. Download the schedule as CSV if needed.
 
 After updating tasks, availability, commitments or meals, generate and save a fresh plan. **Replan remaining tasks** schedules only unfinished work, giving earlier deadlines priority while respecting availability, breaks and the daily study limit. Review the draft and select **Save plan** to make it the current schedule. The saved plan remains visible after reopening the app.
@@ -87,16 +89,16 @@ Expired individual availability entries and date exceptions are cleaned up when 
 
 ### Exams, presentations and other fixed events
 
-1. In **Inbox (Gmail) → Message analysis**, select the relevant messages, give consent and choose **Analyze selected messages**.
+1. In **Inbox → Tasks & events**, select the relevant messages, give consent and choose **Analyze selected messages**.
 2. The same analysis finds fixed events and flexible preparation tasks from message text and readable PDF/Word attachments. No separate event-extraction action is needed; messages containing only appointments are supported too.
 3. Review the supporting text, event type, exact start and end, location and travel time. Check **Include** for the desired events, confirm the review and select **Save selected fixed events**. Missing times must be filled before saving; an exam's duration is not an AI estimate of preparation time.
-4. In **Study Plan → Saved fixed events**, use **Edit or remove a fixed event** for corrections. Generate and save a new study plan after a change.
+4. In **Study Plan → Commitments & calendar → Saved fixed events**, use **Edit or remove a fixed event** for corrections. Generate and save a new study plan after a change.
 
 For example, an exam on 28 October from 14:00 to 16:00 blocks that exact interval. Studying for the exam remains a separate flexible task. A submission deadline alone is not treated as an appointment. Repeat saves preserve the existing event and human corrections. Source quotations and file/page references remain with the saved event. To retain an original attachment separately, use the attachment library's **Save attachment** action.
 
 ### Google Calendar sync
 
-1. Enable Google Calendar API in the Google project used for your desktop sign-in client. In **Study Plan → Google Calendar sync**, select **Connect or change Calendar sync account** and authorize your Google account.
+1. Enable Google Calendar API in the Google project used for your desktop sign-in client. In **Study Plan → Commitments & calendar → Google Calendar sync**, select **Connect or change Calendar sync account** and authorize your Google account.
 2. Keep **Include saved study sessions** selected to export a current saved plan together with confirmed fixed events. If the plan is out of date, generate and save a fresh plan first, or leave this option off to sync only fixed events.
 3. Select **Preview Calendar changes**. Review the account and every event to add, update or remove, then check the review box and select **Sync reviewed changes**.
 4. Use **Open Google Calendar** and display the **StudentFlow** calendar. After replanning or editing fixed events, repeat preview and sync.

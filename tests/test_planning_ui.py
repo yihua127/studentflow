@@ -8,6 +8,7 @@ from streamlit.testing.v1 import AppTest
 
 from studentflow.planning_ui import (
     ZONE,
+    _agenda_html,
     default_preferences,
     make_draft,
     parse_meal_breaks,
@@ -72,6 +73,17 @@ def test_export_contains_readable_columns_and_neutralizes_formula_titles():
     assert "internal" not in result
 
 
+def test_agenda_keeps_source_titles_as_text_and_uses_local_times():
+    rendered = _agenda_html([
+        {"title": '<img src=x onerror="alert(1)"> & notes',
+         "start": "2030-01-01T01:00:00+00:00", "end": "2030-01-01T02:00:00+00:00",
+         "minutes": 60, "task_id": "internal"},
+    ])
+    assert "<img" not in rendered and "&lt;img" in rendered and "&amp; notes" in rendered
+    assert "09:00" in rendered and "10:00" in rendered and "01 Jan 2030" in rendered
+    assert "internal" not in rendered
+
+
 def test_editable_meals_parse_add_change_delete_and_reject_invalid():
     assert parse_meal_breaks("12:15-13:00\n18:30–19:15") == [
         {"start": "12:15", "end": "13:00"}, {"start": "18:30", "end": "19:15"},
@@ -124,6 +136,9 @@ render_planner(store.tasks(), store, path)
         return next(item for item in app.button if item.label == label)
 
     run()
+    assert [tab.label for tab in app.tabs] == [
+        "Schedule", "Availability & preferences", "Commitments & calendar"
+    ]
     assert button("Generate study plan").disabled
     assert not (tmp_path / "planning_preferences.json").exists()
     app.date_input(key="sf_plan_slot_day").set_value(day)
@@ -132,6 +147,9 @@ render_planner(store.tasks(), store, path)
     assert not button("Generate study plan").disabled
     button("Generate study plan").click()
     run()
+    app.radio(key="sf_plan_view_draft").set_value("Table")
+    run()
+    assert any("Prepare report" in str(table.value) for table in app.dataframe)
     assert button("Save plan").disabled
     with store.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM plans").fetchone()[0] == 0
@@ -174,3 +192,38 @@ render_planner([], Store(path / 'tasks.sqlite3'), path)
     next(item for item in app.button if item.label == "Save preferences").click().run()
     assert not app.exception
     assert read_preferences(tmp_path / "planning_preferences.json")["settings"]["meals"] == []
+
+
+def test_sidebar_round_trip_keeps_view_but_requires_fresh_plan_review(tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDENTFLOW_TEST_PLAN_DATA", str(tmp_path))
+    day = datetime.now(ZONE).date() + timedelta(days=1)
+    store = Store(tmp_path / "tasks.sqlite3")
+    store.save_task({"title": "Prepare report", "status": "confirmed", "estimated_minutes": 30,
+                     "due_at": datetime.combine(day, time(21), ZONE).isoformat()})
+    preferences = default_preferences()
+    preferences["available_slots"] = [window(day, time(9), time(11))]
+    write_preferences(tmp_path / "planning_preferences.json", preferences)
+    app = AppTest.from_string('''
+import os
+from pathlib import Path
+import streamlit as st
+from studentflow.planning_ui import preserve_planning_inputs, render_planner
+from studentflow.storage import Store
+path = Path(os.environ["STUDENTFLOW_TEST_PLAN_DATA"])
+store = Store(path / "tasks.sqlite3")
+preserve_planning_inputs()
+page = st.radio("Page", ["Study plan", "Other"], key="test_route")
+if page == "Study plan":
+    render_planner(store.tasks(), store, path)
+''').run(timeout=30)
+    next(button for button in app.button if button.label == "Generate study plan").click().run()
+    app.radio(key="sf_plan_view_draft").set_value("Table").run()
+    reviewed = next(item for item in app.checkbox if item.label.startswith("I have reviewed"))
+    reviewed.check().run()
+    assert not next(button for button in app.button if button.label == "Save plan").disabled
+    app.radio(key="test_route").set_value("Other").run()
+    app.radio(key="test_route").set_value("Study plan").run()
+    assert not app.exception
+    assert app.radio(key="sf_plan_view_draft").value == "Table"
+    assert next(button for button in app.button if button.label == "Save plan").disabled
+    assert store.latest_plan() is None

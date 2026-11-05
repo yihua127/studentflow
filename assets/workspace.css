@@ -453,3 +453,120 @@
 @media (prefers-reduced-motion: reduce) {
   .st-key-sf_app_tab [data-testid="stRadioOption"] { transition: none; }
 }
+
+/* Tasks and study planning share the inbox's quiet panels and native controls. */
+.st-key-tasks_category [data-testid="stRadioGroup"] {
+  gap: 0.2rem;
+  padding: 0.25rem;
+  border: 1px solid #e8ebf2;
+  border-radius: 0.6rem;
+  background: #f5f6fa;
+}
+.st-key-tasks_category [data-testid="stRadioOption"] {
+  flex: 1;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  color: #5c6980;
+}
+.st-key-tasks_category [data-testid="stRadioOption"] > div > div:first-child { display: none; }
+.st-key-tasks_category [data-testid="stRadioOption"] p { font-size: 0.81rem; }
+.st-key-tasks_category [data-testid="stRadioOption"][data-selected] {
+  background: #fff;
+  color: #3e4f9c;
+  border-color: #e1e5f0;
+  box-shadow: 0 1px 2px rgba(31, 43, 67, 0.04);
+}
+.st-key-tasks_category [data-testid="stRadioOption"][data-focus-visible] {
+  outline: 2px solid var(--sf-accent);
+  outline-offset: 1px;
+}
+.st-key-sf_task_list { padding: 0; border: 0; }
+.st-key-sf_task_list [data-testid="stVerticalBlock"] { gap: 0.45rem; }
+[class*="st-key-sf_task_row_"] {
+  padding: 0.85rem 0.9rem;
+  border: 1px solid #edf0f5;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+[class*="st-key-sf_task_row_"]:hover { background: #fafbfe; border-color: #dbe1f0; }
+[class*="st-key-sf_task_row_active_"] { background: #eef1fb; border-color: #dce2f5; }
+[class*="st-key-sf_task_row_active_"]:hover { background: #e9edfa; }
+[class*="st-key-sf_task_row_"] [data-testid="stButton"] button {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--sf-ink);
+}
+[class*="st-key-sf_task_row_"] [data-testid="stButton"] button > div,
+[class*="st-key-sf_task_row_"] [data-testid="stButton"] button > div > span {
+  justify-content: flex-start;
+  text-align: left;
+  width: 100%;
+}
+[class*="st-key-sf_task_row_"] [data-testid="stButton"] button p {
+  font-size: 0.91rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.sf-task-meta {
+  display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; align-items: center;
+  color: var(--sf-muted); font-size: 0.75rem; line-height: 1.65; overflow-wrap: anywhere;
+}
+.sf-task-date { margin-top: 0.4rem; color: var(--sf-muted); font-size: 0.75rem; line-height: 1.6; }
+.sf-task-summary { display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; }
+.sf-task-summary h3 { margin: 0; padding: 0; overflow-wrap: anywhere; }
+.sf-task-summary strong { color: var(--sf-ink); }
+.st-key-sf_panel_tasks_editor [data-testid="stForm"] { background: #fbfcfe; }
+.st-key-sf_plan_tabs [role="tablist"] { gap: 1.6rem; border-bottom-color: var(--sf-line); }
+.st-key-sf_plan_tabs [role="tab"] { padding: 0.8rem 0.2rem; }
+.st-key-sf_plan_tabs [role="tab"] p { font-size: 0.87rem; font-weight: 550; }
+.st-key-sf_plan_tabs [role="tabpanel"] { padding-top: 1.2rem; }
+.sf-agenda { display: grid; gap: 1rem; margin: 0.4rem 0 0.8rem; }
+.sf-agenda-day { border: 1px solid var(--sf-line); border-radius: 0.7rem; overflow: hidden; background: #fff; }
+.sf-agenda-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0.8rem 1rem;
+  background: #f6f7fb;
+  color: #46536b;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.sf-agenda-row {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  gap: 0.6rem 1rem;
+  align-items: center;
+  padding: 0.95rem 1rem;
+  border-top: 1px solid #edf0f5;
+}
+.sf-agenda-time { font-size: 0.8rem; font-weight: 600; color: #596785; white-space: nowrap; }
+.sf-agenda-time span { display: block; padding-top: 0.2rem; color: #7b879b; font-weight: 400; }
+.sf-agenda-content {
+  min-width: 0;
+  border-left: 3px solid #8898d2;
+  padding-left: 0.85rem;
+}
+.sf-agenda-title {
+  font-size: 0.9rem;
+  font-weight: 550;
+  color: var(--sf-ink);
+  overflow-wrap: anywhere;
+}
+.sf-agenda-meta { margin-top: 0.3rem; color: var(--sf-muted); font-size: 0.75rem; }
+[class*="st-key-sf_plan_view_"] [data-testid="stRadioOption"] p { font-size: 0.8rem; }
+@media (max-width: 900px) {
+  .sf-agenda-row { grid-template-columns: 3.5rem minmax(0, 1fr); gap: 0.5rem 0.7rem; }
+}
+@media (max-width: 640px) {
+  .st-key-sf_plan_tabs [role="tablist"] { gap: 0.65rem; }
+  .st-key-sf_plan_tabs [role="tab"] p { font-size: 0.78rem; }
+}

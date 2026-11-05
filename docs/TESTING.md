@@ -1,5 +1,11 @@
 # Validation status
 
+## Tasks and study-plan workspaces — 5 November 2026
+
+The redesigned task browser and study-plan sections were checked with **85 passing affected offline regression cases**. Coverage includes task search and selection, editing and progress, retained source evidence and estimate history, deletion, exports, weekly availability and date changes, fixed events, plan validation and saving, Calendar preview and confirmation, daily progress, and sidebar navigation. Ordinary received input values survive navigation; review and deletion approvals are not restored. Unsubmitted browser form edits still need to be saved before leaving the page.
+
+Browser checks used isolated sample tasks and plans at 1536×1000 and 1100×800. The task list and editor, saved and proposed agendas, availability settings and commitments sections rendered without application errors or document-level horizontal overflow. The plan save action remained disabled until review. Ruff and whitespace checks passed. These checks did not use real Gmail or Calendar writes or paid model requests.
+
 ## Sidebar and email workspace — 5 November 2026
 
 The sidebar and shared message browser were checked with **155 passing offline regression tests**. Coverage includes source selection, pagination, account changes, reading without AI consent, reply source handoff, preserved edited drafts, task and fixed-event review edits across navigation, and explicit save/send confirmation. Existing classification, label editing, assistant and daily progress tests also passed. Ruff and whitespace checks passed.

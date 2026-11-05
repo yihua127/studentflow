@@ -295,7 +295,10 @@ def test_sidebar_navigation_only_renders_the_chosen_workspace(tmp_path, monkeypa
     for destination in ("Overview", "Tasks", "Study Plan", "Discussions", "Assistant", "Attachments", "Settings"):
         navigate(app, destination)
         assert app.sidebar.radio(key="sf_app_tab").value == destination
-        assert not app.tabs
+        assert [tab.label for tab in app.tabs] == (
+            ["Schedule", "Availability & preferences", "Commitments & calendar"]
+            if destination == "Study Plan" else []
+        )
         assert not any(button.label == "Refresh inbox" for button in app.button)
         assert not any(radio.key == "sf_inbox_workflow" for radio in app.radio)
     navigate(app, "Inbox (Gmail)")

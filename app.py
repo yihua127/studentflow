@@ -27,9 +27,9 @@ from studentflow.extraction import evidence_text, message_documents
 from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.inbox_triage_ui import clear_triage_state, render_inbox_triage
 from studentflow.inbox_workspace import clear_workspace, render_mail_body, render_mail_list
-from studentflow.planning_ui import render_planner
+from studentflow.planning_ui import preserve_planning_inputs, render_planner
 from studentflow.storage import Store
-from studentflow.tasks_ui import render_tasks
+from studentflow.tasks_ui import preserve_task_inputs, render_tasks
 from studentflow.ui_shell import apply_theme, render_navigation
 
 ROOT = Path(__file__).resolve().parent
@@ -415,6 +415,8 @@ def main():
     apply_theme(ROOT)
     _preserve_workspace_inputs()
     preserve_batch_review_inputs()
+    preserve_task_inputs()
+    preserve_planning_inputs()
     st.session_state.setdefault("mails", {})
     st.session_state.setdefault("candidates", {})
     data_dir = Path(os.environ.get("STUDENTFLOW_DATA_DIR", str(ROOT / "data")))

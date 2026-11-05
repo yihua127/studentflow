@@ -56,7 +56,9 @@ Then open **StudentFlow** from the desktop. An existing installation can also be
 
 In **Inbox (Gmail)**, select messages and choose **Analyze selected messages**. Review task and appointment suggestions, adjust missing details and save the items you want to use. Tasks need a deadline and a positive study-time estimate before they can be confirmed for planning.
 
-In **Study Plan**, set your availability and fixed commitments, generate a plan and review it before saving. The planner prefers whole-hour starts when feasible while respecting deadlines and scheduling constraints. Record completed study time and use **Replan remaining tasks** to update the schedule.
+In **Tasks**, search or filter your task list and open a card to review its details, supporting text and progress. The full table and CSV export remain available.
+
+In **Study Plan**, use **Availability & preferences** to set your weekly hours and date changes, and **Commitments & calendar** to manage fixed events. In **Schedule**, generate a plan and review its daily agenda or table before saving. The planner prefers whole-hour starts when feasible while respecting deadlines and scheduling constraints. Record completed study time and use **Replan remaining tasks** to update the schedule.
 
 Use **Google Calendar sync** to preview changes before applying them. Sync is manual and one-way from StudentFlow to its dedicated calendar; edits made in Google Calendar are not imported.
 

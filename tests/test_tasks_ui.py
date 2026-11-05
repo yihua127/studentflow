@@ -195,7 +195,69 @@ def test_empty_category_does_not_offer_editor_for_other_category(workspace):
     app.radio(key="tasks_category").set_value("Completed")
     checked(app)
     assert any("No completed tasks" in message.value for message in app.info)
-    assert not app.text_input and not app.number_input
+    assert not any(item.label == "Task name" for item in app.text_input)
+    assert not app.number_input
+
+
+def test_task_browser_filters_and_opens_the_matching_record_without_saving(workspace):
+    first_id = save_task(workspace)
+    second_id = save_task(workspace, title="Read the case study", mail_id="message-two",
+                          mail_subject="Seminar preparation", status="confirmed",
+                          due_at="2026-10-17T17:00:00+08:00", estimated_minutes=45)
+    app = checked(AppTest.from_string(APP_SOURCE))
+    app.button(key=f"sf_task_open_{second_id}").click()
+    checked(app)
+    assert field(app.text_input, "Task name").value == "Read the case study"
+    app.text_input(key="sf_task_search").set_value("REPORT ASSIGNMENT")
+    checked(app)
+    assert app.selectbox(key="tasks_selected_Unfinished").value == first_id
+    assert field(app.text_input, "Task name").value == "Prepare report"
+    app.selectbox(key="sf_task_status").set_value("Ready to plan")
+    checked(app)
+    assert any("No tasks match" in item.value for item in app.info)
+    assert not any(item.label == "Task name" for item in app.text_input)
+    assert len(workspace.tasks()) == 2
+
+
+def test_saving_a_task_keeps_it_visible_when_its_title_and_status_change(workspace):
+    task_id = save_task(workspace)
+    app = checked(AppTest.from_string(APP_SOURCE))
+    app.text_input(key="sf_task_search").set_value("Prepare")
+    app.selectbox(key="sf_task_status").set_value("Needs details")
+    checked(app)
+    field(app.text_input, "Task name").set_value("Write final report")
+    field(app.text_input, "Deadline (Singapore time)").set_value("2026-10-16 17:00")
+    field(app.number_input, "Estimated study time (minutes)").set_value(45)
+    save_changes(app)
+    assert app.selectbox(key="tasks_selected_Unfinished").value == task_id
+    assert app.text_input(key="sf_task_search").value == ""
+    assert app.selectbox(key="sf_task_status").value == "All tasks"
+    assert field(app.text_input, "Task name").value == "Write final report"
+    assert field(app.checkbox, "I have reviewed these task details.").value is False
+
+
+def test_task_navigation_keeps_browsing_state_but_requires_fresh_review(workspace):
+    save_task(workspace, title="Prepare report", estimated_minutes=90)
+    app = checked(AppTest.from_string(APP_SOURCE.replace(
+        "render_tasks(Store(Path(os.environ['STUDENTFLOW_TEST_TASKS']) / 'tasks.sqlite3'))",
+        """import streamlit as st
+from studentflow.tasks_ui import preserve_task_inputs
+preserve_task_inputs()
+page = st.radio('Page', ['Tasks', 'Elsewhere'])
+if page == 'Tasks':
+    render_tasks(Store(Path(os.environ['STUDENTFLOW_TEST_TASKS']) / 'tasks.sqlite3'))
+""",
+    )))
+    app.text_input(key="sf_task_search").set_value("report")
+    checked(app)
+    field(app.checkbox, "I have reviewed these task details.").check()
+    checked(app)
+    field(app.radio, "Page").set_value("Elsewhere")
+    checked(app)
+    field(app.radio, "Page").set_value("Tasks")
+    checked(app)
+    assert app.text_input(key="sf_task_search").value == "report"
+    assert field(app.checkbox, "I have reviewed these task details.").value is False
 
 
 def test_task_export_keeps_progress_and_escapes_untrusted_spreadsheet_formulas():

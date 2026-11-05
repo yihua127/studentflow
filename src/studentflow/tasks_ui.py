@@ -8,6 +8,7 @@ import io
 import json
 import sqlite3
 from datetime import datetime
+from html import escape
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -36,6 +37,71 @@ def _deadline_input(value):
 def _is_completed(task):
     estimate = task.get("estimated_minutes") or 0
     return bool(estimate > 0 and (task.get("completed_minutes") or 0) >= estimate)
+
+
+def _duration(minutes):
+    hours, remainder = divmod(int(minutes), 60)
+    return f"{hours}h {remainder}m" if hours and remainder else f"{hours}h" if hours else f"{remainder}m"
+
+
+def preserve_task_inputs():
+    """Keep browsing choices and ordinary edits when another workspace is shown.
+
+    Review and deletion confirmations intentionally remain scoped to a visible
+    editor; they must not be restored when a user returns to this page.
+    """
+    for key in list(st.session_state):
+        if key in ("tasks_category", "sf_task_search", "sf_task_status") or key.startswith(
+            "tasks_selected_",
+        ) or (key.startswith("task_edit_") and key.endswith(
+            ("_title", "_due", "_estimate", "_completed"),
+        )):
+            st.session_state[key] = st.session_state[key]
+
+
+def _choose_task(identifier):
+    st.session_state.tasks_next_selection = identifier
+
+
+def _task_status(task):
+    if _is_completed(task):
+        return "Completed", "sf-pill-success"
+    if task.get("status") == "confirmed":
+        return "Ready to plan", ""
+    return "Needs details", "sf-pill-warning"
+
+
+def _render_task_card(task, active):
+    identifier = task["id"]
+    key = "sf_task_row_" + ("active_" if active else "") + str(identifier)
+    with st.container(key=key):
+        st.button(task["title"], key=f"sf_task_open_{identifier}", width="stretch", wrap=True,
+                  on_click=_choose_task, args=(identifier,))
+        label, style = _task_status(task)
+        estimate = task.get("estimated_minutes") or 0
+        completed = task.get("completed_minutes") or 0
+        remaining = _duration(max(0, estimate - completed)) + " left" if estimate else "Time needed"
+        st.html(
+            '<div class="sf-task-meta"><span class="sf-pill ' + style + '">'
+            + label + '</span><span>' + escape(remaining) + '</span></div>'
+            '<div class="sf-task-date">Due ' + escape(_display_time(task.get("due_at"))) + '</div>'
+        )
+        if estimate:
+            st.progress(min(1.0, completed / estimate))
+
+
+def _render_task_summary(task):
+    label, style = _task_status(task)
+    st.html('<div class="sf-task-summary"><span class="sf-pill ' + style + '">'
+            + label + '</span><h3>' + escape(task["title"]) + '</h3></div>')
+    estimate = task.get("estimated_minutes") or 0
+    completed = task.get("completed_minutes") or 0
+    if estimate:
+        st.progress(min(1.0, completed / estimate),
+                    text=f"{_duration(completed)} completed · "
+                         f"{_duration(max(0, estimate - completed))} remaining")
+    else:
+        st.caption("Add an estimated study time to track progress.")
 
 
 def task_rows(tasks):
@@ -92,12 +158,9 @@ def _render_editor(store, task):
         st.info("This task has changed. Its latest details and progress are shown below.")
     versions[task["id"]] = revision
 
-    st.write("**Edit task details**")
+    st.write("**Task details**")
     st.caption("Confirmed requires a deadline and estimated study time greater than 0 minutes. "
                "You can save missing details and finish them later.")
-    st.caption("Estimated study time is the total time needed, including time already completed. "
-               "Remaining time is the estimate minus completed minutes. "
-               "When remaining time reaches 0, the task moves to Completed.")
     effort = task.get("effort_review")
     if effort:
         with st.expander("Study-time estimate history"):
@@ -134,14 +197,16 @@ def _render_editor(store, task):
             estimate = st.number_input(
                 "Estimated study time (minutes)", value=int(task.get("estimated_minutes") or 0),
                 min_value=0, step=15, key=prefix + "_estimate",
-                help="Total study time, including completed minutes. Use 0 for unknown.",
+                help="Total study time, including completed minutes. Use 0 for unknown. "
+                     "Remaining time is the total estimate minus completed minutes.",
             )
         with right:
             completed = st.number_input(
                 "Completed study time (minutes)", value=int(task.get("completed_minutes") or 0),
                 min_value=0, step=15, key=prefix + "_completed",
                 help="Total minutes already completed, not additional minutes for today. "
-                     "Cannot exceed the estimated study time.",
+                     "Cannot exceed the estimated study time. When remaining time reaches 0, "
+                     "the task moves to Completed.",
             )
         reviewed = st.checkbox("I have reviewed these task details.", key=prefix + "_reviewed")
         if st.form_submit_button("Save changes", type="primary"):
@@ -211,46 +276,89 @@ def _render_delete(store, task):
 def render_tasks(store):
     """Render task categories and save edits against the original stable task ID."""
     tasks = store.tasks()
-    st.subheader("Tasks")
-    st.caption("Edit task details and track remaining study time here. "
-               "Confirmed means the task is ready for planning; Completed means no study time remains.")
+    st.html('<div class="sf-eyebrow">YOUR WORK, IN FOCUS</div>')
+    st.title("Tasks")
+    st.caption("Keep the next step clear. Review details, track progress and make room to study.")
     notice = st.session_state.pop("tasks_notice", None)
     if notice:
         st.success(notice)
     if not tasks:
-        st.info("No tasks yet. Select messages in Inbox (Gmail) to extract or add tasks.")
+        with st.container(border=True, key="sf_panel_tasks_empty"):
+            st.info("No tasks yet. Select messages in Inbox (Gmail) to extract or add tasks.")
         return
 
+    unfinished = [task for task in tasks if not _is_completed(task)]
+    remaining = sum(max(0, (task.get("estimated_minutes") or 0)
+                        - (task.get("completed_minutes") or 0)) for task in unfinished)
+    needs_details = sum(task.get("status") != "confirmed" for task in unfinished)
+    first, second, third = st.columns(3)
+    first.metric("Unfinished tasks", len(unfinished))
+    second.metric("Known time remaining", _duration(remaining),
+                  help="Total remaining time for tasks with an estimate. Unknown times are excluded.")
+    third.metric("Needs details", needs_details,
+                 help="Add or confirm the missing deadline and study time before planning.")
     if "tasks_next_category" in st.session_state:
         st.session_state.tasks_category = st.session_state.pop("tasks_next_category")
+    if st.session_state.get("tasks_own_save"):
+        # Keep the saved task visible even if its title/status no longer matches.
+        st.session_state.sf_task_search = ""
+        st.session_state.sf_task_status = "All tasks"
     counts = {
         "Unfinished": sum(not _is_completed(task) for task in tasks),
         "Completed": sum(_is_completed(task) for task in tasks),
     }
-    category = st.radio(
-        "Task category", ["Unfinished", "Completed"], key="tasks_category", horizontal=True,
-        format_func=lambda name: f"{name} ({counts[name]})",
-    )
-    selected_tasks = [task for task in tasks if _is_completed(task) == (category == "Completed")]
-    if selected_tasks:
-        st.dataframe(task_rows(selected_tasks), hide_index=True, width="stretch")
+    browser, editor = st.columns([0.95, 1.45], gap="medium")
+    with browser, st.container(border=True, key="sf_panel_tasks_browser"):
+        st.subheader("Your task list")
+        category = st.radio(
+            "Task category", ["Unfinished", "Completed"], key="tasks_category", horizontal=True,
+            format_func=lambda name: f"{name} ({counts[name]})", label_visibility="collapsed",
+        )
+        query = st.text_input("Search tasks", key="sf_task_search",
+                              placeholder="Task name or source message").strip().casefold()
+        status = st.selectbox("Task status", ["All tasks", "Ready to plan", "Needs details"],
+                              key="sf_task_status")
+        category_tasks = [task for task in tasks
+                          if _is_completed(task) == (category == "Completed")]
+        selected_tasks = [task for task in category_tasks
+                          if (not query or query in task["title"].casefold()
+                              or query in (task.get("mail_subject") or "").casefold())
+                          and (status == "All tasks"
+                               or (task.get("status") == "confirmed") == (status == "Ready to plan"))]
         by_id = {task["id"]: task for task in selected_tasks}
         selection_key = "tasks_selected_" + category
         next_selection = st.session_state.pop("tasks_next_selection", None)
         if next_selection in by_id:
             st.session_state[selection_key] = next_selection
-        elif st.session_state.get(selection_key) not in by_id:
+        elif by_id and st.session_state.get(selection_key) not in by_id:
             st.session_state[selection_key] = next(iter(by_id))
-        task_id = st.selectbox(
-            "Edit task", list(by_id), key=selection_key,
-            format_func=lambda identifier: (
-                by_id[identifier]["title"] + " · "
-                + (by_id[identifier].get("mail_subject") or "Saved message")
-            ),
-        )
-        _render_editor(store, by_id[task_id])
-        _render_delete(store, by_id[task_id])
-    else:
-        st.info("No completed tasks yet." if category == "Completed" else "No unfinished tasks.")
+        st.caption(f"{len(selected_tasks)} of {len(category_tasks)} "
+                   f"{category.lower()} task(s)")
+        if selected_tasks:
+            with st.container(height=430, border=False, key="sf_task_list"):
+                for task in selected_tasks:
+                    _render_task_card(task, task["id"] == st.session_state.get(selection_key))
+            with st.expander("Full task table"):
+                st.dataframe(task_rows(selected_tasks), hide_index=True, width="stretch")
+        elif category_tasks:
+            st.info("No tasks match these filters. Try another search or status.")
+        else:
+            st.info("No completed tasks yet." if category == "Completed" else "No unfinished tasks.")
+        st.download_button("Download tasks", tasks_csv(tasks), "studentflow_tasks.csv", "text/csv",
+                           icon=":material/download:", width="stretch")
+    with editor, st.container(border=True, key="sf_panel_tasks_editor"):
+        if by_id:
+            task_id = st.selectbox(
+                "Edit task", list(by_id), key=selection_key,
+                format_func=lambda identifier: (
+                    by_id[identifier]["title"] + " · "
+                    + (by_id[identifier].get("mail_subject") or "Saved message")
+                ),
+            )
+            _render_task_summary(by_id[task_id])
+            _render_editor(store, by_id[task_id])
+            _render_delete(store, by_id[task_id])
+        else:
+            st.html('<div class="sf-empty-state">Choose a task from your list to review its '
+                    'details and progress.</div>')
     st.session_state.pop("tasks_own_save", None)
-    st.download_button("Download tasks", tasks_csv(tasks), "studentflow_tasks.csv", "text/csv")
