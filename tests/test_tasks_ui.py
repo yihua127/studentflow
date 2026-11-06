@@ -52,6 +52,10 @@ def save_changes(app):
 def test_task_editor_confirms_missing_details_and_renames_same_record(workspace):
     task_id = save_task(workspace)
     app = checked(AppTest.from_string(APP_SOURCE))
+    assert app.selectbox(key="tasks_selected_Unfinished").value is None
+    assert not app.number_input
+    app.selectbox(key="tasks_selected_Unfinished").set_value(task_id)
+    checked(app)
     assert any("Confirmed requires a deadline" in caption.value for caption in app.caption)
     field(app.text_input, "Task name").set_value("Prepare final report")
     field(app.text_input, "Deadline (Singapore time)").set_value("2026-10-16 17:00")
@@ -71,6 +75,8 @@ def test_task_editor_confirms_missing_details_and_renames_same_record(workspace)
 def test_editor_tracks_partial_completion_and_moves_both_directions(workspace):
     save_task(workspace, status="confirmed", due_at="2026-10-16T17:00:00+08:00", estimated_minutes=60)
     app = checked(AppTest.from_string(APP_SOURCE))
+    field(app.button, "Prepare report").click()
+    checked(app)
     field(app.number_input, "Completed study time (minutes)").set_value(15)
     save_changes(app)
     assert app.radio(key="tasks_category").value == "Unfinished"
@@ -108,6 +114,8 @@ def test_editor_shows_effort_review_and_preserves_advice_and_progress_after_adju
     )
     before, = workspace.tasks()
     app = checked(AppTest.from_string(APP_SOURCE))
+    field(app.button, "Prepare report").click()
+    checked(app)
     history = field(app.expander, "Study-time estimate history")
     assert history.dataframe[0].value.iloc[0].to_dict() == {
         "Source-stated minutes": 120, "AI suggested minutes": 90,
@@ -146,6 +154,8 @@ def test_unknown_estimate_stays_unfinished_and_can_save_missing_deadline(workspa
     app = checked(AppTest.from_string(APP_SOURCE))
     assert app.radio(key="tasks_category").value == "Unfinished"
     assert app.dataframe[0].value.iloc[0]["Remaining (min)"] is None
+    field(app.button, "Prepare report").click()
+    checked(app)
     field(app.number_input, "Estimated study time (minutes)").set_value(45)
     save_changes(app)
     task, = workspace.tasks()
@@ -159,6 +169,8 @@ def test_invalid_edit_does_not_mutate_saved_task(workspace, invalid):
     save_task(workspace, estimated_minutes=60)
     before = workspace.tasks()
     app = checked(AppTest.from_string(APP_SOURCE))
+    field(app.button, "Prepare report").click()
+    checked(app)
     field(app.text_input, "Task name").set_value("Unreviewed change")
     if invalid != "review":
         field(app.checkbox, "I have reviewed these task details.").check()
@@ -175,6 +187,8 @@ def test_invalid_edit_does_not_mutate_saved_task(workspace, invalid):
 def test_external_progress_refreshes_editor_and_resets_review(workspace):
     task_id = save_task(workspace, estimated_minutes=90)
     app = checked(AppTest.from_string(APP_SOURCE))
+    field(app.button, "Prepare report").click()
+    checked(app)
     old_key = field(app.number_input, "Completed study time (minutes)").key
     field(app.text_input, "Task name").set_value("Stale edit")
     field(app.checkbox, "I have reviewed these task details.").check()
@@ -210,7 +224,10 @@ def test_task_browser_filters_and_opens_the_matching_record_without_saving(works
     assert field(app.text_input, "Task name").value == "Read the case study"
     app.text_input(key="sf_task_search").set_value("REPORT ASSIGNMENT")
     checked(app)
-    assert app.selectbox(key="tasks_selected_Unfinished").value == first_id
+    assert app.selectbox(key="tasks_selected_Unfinished").value is None
+    assert not any(item.label == "Task name" for item in app.text_input)
+    app.selectbox(key="tasks_selected_Unfinished").set_value(first_id)
+    checked(app)
     assert field(app.text_input, "Task name").value == "Prepare report"
     app.selectbox(key="sf_task_status").set_value("Ready to plan")
     checked(app)
@@ -224,6 +241,8 @@ def test_saving_a_task_keeps_it_visible_when_its_title_and_status_change(workspa
     app = checked(AppTest.from_string(APP_SOURCE))
     app.text_input(key="sf_task_search").set_value("Prepare")
     app.selectbox(key="sf_task_status").set_value("Needs details")
+    checked(app)
+    field(app.button, "Prepare report").click()
     checked(app)
     field(app.text_input, "Task name").set_value("Write final report")
     field(app.text_input, "Deadline (Singapore time)").set_value("2026-10-16 17:00")
@@ -303,6 +322,8 @@ if page == 'Tasks':
 """,
     )))
     app.text_input(key="sf_task_search").set_value("report")
+    checked(app)
+    field(app.button, "Prepare report").click()
     checked(app)
     field(app.checkbox, "I have reviewed these task details.").check()
     checked(app)

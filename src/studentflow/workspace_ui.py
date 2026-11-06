@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
+from studentflow.ui_shell import render_gmail_loader
 from studentflow.assistant_context import source_key
 from studentflow.google_workspace import (
     GoogleWorkspaceAuthError,
@@ -150,28 +151,34 @@ def render_workspace_sources(
             disabled=not client_path.is_file() or not st.session_state[PREFIX + "consent"],
             width="stretch",
         ):
+            progress = st.empty()
+            with progress.container():
+                render_gmail_loader("working")
+                login_link = st.empty()
             try:
-                with st.spinner("Connecting to Google..."):
-                    prior_token = root / "credentials" / "google_workspace_probe_token.json"
-                    if not token_path.is_file() and prior_token.is_file():
-                        try:
-                            import_workspace_token(client_path, prior_token, token_path)
-                        except GoogleWorkspaceError:
-                            # An obsolete permission-check token must not prevent a fresh login.
-                            pass
+                prior_token = root / "credentials" / "google_workspace_probe_token.json"
+                if not token_path.is_file() and prior_token.is_file():
                     try:
-                        with closing(connect_workspace(client_path, token_path)) as client:
-                            _account(client)
-                    except GoogleWorkspaceAuthError:
-                        with closing(connect_workspace(
-                            client_path, token_path, interactive=True,
-                        )) as client:
-                            _account(client)
+                        import_workspace_token(client_path, prior_token, token_path)
+                    except GoogleWorkspaceError:
+                        # An obsolete permission-check token must not prevent a fresh login.
+                        pass
+                try:
+                    with closing(connect_workspace(client_path, token_path)) as client:
+                        _account(client)
+                except GoogleWorkspaceAuthError:
+                    with closing(connect_workspace(
+                        client_path, token_path, interactive=True,
+                        show_login_link=lambda url: login_link.link_button("Open Google sign-in", url),
+                    )) as client:
+                        _account(client)
                 st.success("Google connection is ready.")
             except GoogleWorkspaceError as error:
                 st.error(str(error))
             except (OSError, ValueError):
                 st.error("Google sign-in could not be saved. Check the local setup and try again.")
+            finally:
+                progress.empty()
         if token_path.is_file():
             switch_column, disconnect_column = st.columns(2, gap="small")
         if token_path.is_file() and switch_column.button(
@@ -181,12 +188,18 @@ def render_workspace_sources(
         ):
             # Interactive authorization may replace the token before profile verification.
             _clear_account_sources()
+            login_link = st.empty()
             try:
-                with closing(connect_workspace(client_path, token_path, interactive=True)) as client:
+                with closing(connect_workspace(
+                    client_path, token_path, interactive=True,
+                    show_login_link=lambda url: login_link.link_button("Open Google sign-in", url),
+                )) as client:
                     _account(client)
                 st.rerun()
             except GoogleWorkspaceError as error:
                 st.error(str(error))
+            finally:
+                login_link.empty()
         if token_path.is_file() and disconnect_column.button(
             "Disconnect Google", key=PREFIX + "disconnect", width="stretch",
         ):

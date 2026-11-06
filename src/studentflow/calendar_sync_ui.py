@@ -53,21 +53,23 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
         if not client_path.is_file():
             st.info("Configure the Google desktop sign-in client in Gmail setup first.")
             return
-        st.html('<div class="sf-action-step">1 · Connect your calendar</div>')
-        connect_column, disconnect_column = st.columns([3, 2], gap="small")
-        if connect_column.button(
-            "Connect or change Calendar sync account", key=PREFIX + "connect", width="stretch",
+        if st.button(
+            "Connect or change Calendar sync account", key=PREFIX + "connect", width="content",
         ):
             st.session_state.pop(PREFIX + "preview", None)
+            login_link = st.empty()
             try:
                 with closing(connect_workspace(
                     client_path, token_path, interactive=True,
                     required_scopes=CALENDAR_SYNC_SCOPES,
+                    show_login_link=lambda url: login_link.link_button("Open Google sign-in", url),
                 )) as client:
                     st.session_state[PREFIX + "account"] = client.profile()["email_address"]
                 st.success("Calendar sync permission is ready. Preview the changes below.")
             except GoogleWorkspaceError as error:
                 st.error(str(error))
+            finally:
+                login_link.empty()
         if not token_path.is_file():
             st.session_state.pop(PREFIX + "preview", None)
             return
@@ -80,7 +82,7 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
             )
         else:
             st.caption("Calendar sign-in saved. Preview changes to check the connected account.")
-        if disconnect_column.button(
+        if st.button(
             "Disconnect Calendar sync", key=PREFIX + "disconnect", width="stretch",
         ):
             try:

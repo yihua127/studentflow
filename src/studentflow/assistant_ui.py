@@ -6,11 +6,14 @@ import hashlib
 import json
 import sqlite3
 import time
+from contextlib import nullcontext
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import streamlit as st
+
+from studentflow.page_heading import render_page_heading
 
 from studentflow.assistant_context import (
     run_metadata,
@@ -135,23 +138,25 @@ def _choose_discussion_messages(records: list[dict], key: str, prefix: str) -> l
     records = chronological_sources(records)
     identifiers = [item["source_id"] for item in records]
     st.session_state[key] = [sid for sid in st.session_state.get(key, []) if sid in identifiers]
-    st.write("**Discussion messages**")
-    if records:
-        st.caption(
-            f"{len(records)} readable message(s) in the selected discussion. "
-            "Choose one or more messages below. Times are shown in Singapore time."
+    description = (
+        f"{len(records)} readable message(s) in the selected discussion. "
+        "Choose one or more messages below. Times are shown in Singapore time."
+        if records else
+        "Choose a discussion space above and select Read selected discussion to load its messages."
+    )
+    st.html(
+        '<div class="sf-plan-builder-heading"><strong>Discussion messages</strong>'
+        f'<span>{description}</span></div>'
+    )
+    with st.container(horizontal=True, horizontal_alignment="center"):
+        st.button(
+            "Select all messages", key=prefix + "select_all_messages", disabled=not records,
+            on_click=_set_message_selection, args=(key, identifiers),
         )
-    else:
-        st.caption("Choose a discussion space above and select Read selected discussion to load its messages.")
-    all_column, clear_column = st.columns(2)
-    all_column.button(
-        "Select all messages", key=prefix + "select_all_messages", disabled=not records,
-        on_click=_set_message_selection, args=(key, identifiers),
-    )
-    clear_column.button(
-        "Clear message selection", key=prefix + "clear_messages", disabled=not st.session_state[key],
-        on_click=_set_message_selection, args=(key, []),
-    )
+        st.button(
+            "Clear message selection", key=prefix + "clear_messages", disabled=not st.session_state[key],
+            on_click=_set_message_selection, args=(key, []),
+        )
     selected = _choose_sources("Messages to analyze", records, key, limit=None)
     st.caption(f"{len(selected)} of {len(records)} discussion message(s) selected.")
     return chronological_sources(selected)
@@ -549,12 +554,12 @@ def render_assistant(store, data_dir: Path, root: Path, mails: dict, api_key: st
     account = preference_account(st.session_state.get("gmail_profile", {}).get("email_address", ""))
     _initialize_reply_preferences(data_dir, account)
     is_discussion_page = workspace_mode == "Meetings & discussions"
-    st.html('<div class="sf-eyebrow">THINK CLEARLY, MOVE FORWARD</div>')
-    st.title("Discussions" if is_discussion_page else "Assistant")
-    st.caption(
+    render_page_heading(
+        "THINK CLEARLY, MOVE FORWARD",
+        "Discussions" if is_discussion_page else "Assistant",
         "Turn your conversations into clear decisions, next steps and meeting notes."
         if is_discussion_page else
-        "Bring the right context. Shape a reply, explore an idea or plan your next step."
+        "Bring the right context. Shape a reply, explore an idea or plan your next step.",
     )
     if workspace_mode is not None and workspace_mode not in WORKSPACES:
         raise ValueError("Choose an available assistant workspace.")
@@ -562,6 +567,7 @@ def render_assistant(store, data_dir: Path, root: Path, mails: dict, api_key: st
         st.session_state["sf_assistant_workspace"] = "Email replies"
     mode = workspace_mode or st.radio(
         "Assistant workspace", list(WORKSPACES), horizontal=True, key="sf_assistant_workspace",
+        label_visibility="collapsed",
     )
     previous_mode = st.session_state.get("sf_assistant_previous_workspace")
     if previous_mode and previous_mode != mode:
@@ -576,10 +582,16 @@ def render_assistant(store, data_dir: Path, root: Path, mails: dict, api_key: st
                 st.session_state[prefix + "academic_base"] = st.session_state[prefix + "academic_rows"]
             st.session_state.pop(prefix + "academic_dates", None)
     st.session_state["sf_assistant_previous_workspace"] = mode
-    _render_workspace(store, data_dir, root, mails, api_key, model, account, mode)
+    with nullcontext() if is_discussion_page else st.container(key="sf_assistant_card_deck"):
+        _render_workspace(
+            store, data_dir, root, mails, api_key, model, account, mode,
+            discussion_carousel=is_discussion_page,
+        )
 
 
-def _render_workspace(store, data_dir, root, mails, api_key, model, account, mode) -> None:
+def _render_workspace(
+    store, data_dir, root, mails, api_key, model, account, mode, *, discussion_carousel=False,
+) -> None:
     prefix = WORKSPACES[mode]
     is_email = mode == "Email replies"
     is_meeting = mode == "Meetings & discussions"
@@ -589,16 +601,30 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
     notice = st.session_state.pop(prefix + "effort_notice", None)
     if notice:
         st.success(notice)
-    with st.container(border=True, key="sf_panel_assistant_sources_" + prefix):
-        st.html('<div class="sf-eyebrow">01 / CONTEXT</div>')
-        st.subheader("Choose your sources")
-        st.caption(
-            "Select a discussion, then choose the messages and notes to include."
-            if is_meeting else
-            "Choose the email and supporting information for this request."
-            if is_email else
-            "Bring together messages, saved tasks and the planning details you need."
-        )
+    sources_column, request_column = st.columns(2, gap="medium") if discussion_carousel else (st, st)
+    with sources_column.container(border=True, key="sf_panel_assistant_sources_" + prefix):
+        if discussion_carousel:
+            st.html('<div class="sf-eyebrow">01 / CONTEXT</div>')
+        else:
+            st.html(
+                '<div class="sf-assistant-card-top"><div class="sf-eyebrow">01 / CONTEXT</div>'
+                '<button type="button" class="sf-assistant-card-turn" '
+                'data-assistant-card="request">Request →</button></div>'
+            )
+        if is_meeting:
+            st.html(
+                '<div class="sf-plan-builder-heading sf-discussion-heading"><h2>Choose your sources</h2>'
+                '<span>Select a discussion, then choose the messages and notes to include.</span></div>'
+            )
+        else:
+            description = (
+                "Choose the email and supporting information for this request." if is_email else
+                "Bring together messages, saved tasks and the planning details you need."
+            )
+            st.html(
+                '<div class="sf-plan-builder-heading sf-assistant-heading"><h3>Choose your sources</h3>'
+                f'<span>{description}</span></div>'
+            )
         messages, events, coverage = ([], [], {}) if is_email else render_workspace_sources(
             root, data_dir, show_calendar=is_general,
         )
@@ -648,6 +674,14 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
                     st.text(item["text"][:3000])
                     if len(item["text"]) > 3000:
                         st.caption("Preview shortened. The assistant can read additional passages from this selected source.")
+        if is_email:
+            st.html(
+                '<div class="sf-assistant-drag-hint">'
+                '<div class="sf-assistant-drag-directions" aria-hidden="true">'
+                '<span class="sf-assistant-drag-usagi"></span></div>'
+                '<p>Click and hold, then drag left or right to turn the card.</p>'
+                '</div>'
+            )
         selected_tasks = []
         include_preferences = False
         preferences, progress = {}, {}
@@ -699,19 +733,31 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
                 except ValueError as error:
                     reference_error = str(error)
                     st.warning(reference_error)
-    with st.container(border=True, key="sf_panel_assistant_request_" + prefix):
-        st.html('<div class="sf-eyebrow">02 / REQUEST</div>')
-        st.subheader(
-            "Prepare your discussion summary" if is_meeting else
-            "Write a reply that sounds like you" if is_email else "How can StudentFlow help?"
-        )
-        st.caption(
-            "Get a summary, decisions, action items and a follow-up draft."
-            if is_meeting else
-            "Use your writing preferences to prepare an editable reply."
-            if is_email else
-            "Ask about selected information or prepare changes for review."
-        )
+    with request_column.container(border=True, key="sf_panel_assistant_request_" + prefix):
+        if discussion_carousel:
+            st.html('<div class="sf-eyebrow">02 / REQUEST</div>')
+        else:
+            st.html(
+                '<div class="sf-assistant-card-top"><div class="sf-eyebrow">02 / REQUEST</div>'
+                '<button type="button" class="sf-assistant-card-turn" '
+                'data-assistant-card="sources">← Context</button></div>'
+            )
+        if is_meeting:
+            st.html(
+                '<div class="sf-plan-builder-heading sf-discussion-heading">'
+                '<h2>Prepare your discussion summary</h2>'
+                '<span>Get a summary, decisions, action items and a follow-up draft.</span></div>'
+            )
+        else:
+            title = "Write a reply that sounds like you" if is_email else "How can StudentFlow help?"
+            description = (
+                "Use your writing preferences to prepare an editable reply." if is_email else
+                "Ask about selected information or prepare changes for review."
+            )
+            st.html(
+                f'<div class="sf-plan-builder-heading sf-assistant-heading"><h3>{title}</h3>'
+                f'<span>{description}</span></div>'
+            )
         if is_general:
             st.info("Review and save study-time updates and fixed appointments below. Study plans remain previews; Calendar sync is reviewed separately in Study Plan.")
         style_samples = []
@@ -783,6 +829,8 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
         if include_preferences:
             selection_counts.append("study preferences and recorded daily minutes")
         st.caption("Selected for this request: " + " · ".join(selection_counts) + ".")
+        if discussion_carousel and not st.session_state.get(prefix + "result"):
+            st.caption("Your results will appear below after you run the assistant.")
         if sample.strip() and not approved:
             st.warning("Your writing sample is not included. Check its permission above if you want to use it.")
         if style_samples and not selected_sources:
@@ -790,6 +838,8 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
                 "No email or other source is selected. Your writing sample can guide the tone, but to reply to an "
                 "existing email, select that email above."
             )
+        if not discussion_carousel:
+            st.caption("Your results will appear below after you run the assistant.")
         if st.button(
             "Run assistant", type="primary", key=prefix + "run", width="stretch",
             disabled=not api_key or not consent or not request.strip()
@@ -819,11 +869,18 @@ def _render_workspace(store, data_dir, root, mails, api_key, model, account, mod
                 # SDK/provider errors may contain secrets or selected source content.
                 st.error("The assistant could not complete this request. Check Settings or try a smaller selection. No records were changed.")
     report = st.session_state.get(prefix + "result")
+    if discussion_carousel:
+        st.html(
+            '<nav class="sf-discussion-controls" aria-label="Discussion panels">'
+            '<button type="button" data-discussion-target="sources">Choose your sources</button>'
+            '<button type="button" data-discussion-target="request">Prepare your discussion summary</button>'
+            '</nav>'
+        )
     if not report:
-        st.caption("Your results will appear below after you run the assistant.")
         return
     with st.container(border=True, key="sf_panel_assistant_result_" + prefix):
-        st.html('<div class="sf-eyebrow">03 / REVIEW</div>')
+        if discussion_carousel:
+            st.html('<div class="sf-eyebrow">03 / REVIEW</div>')
         st.subheader("Your discussion summary" if is_meeting else "Your assistant results")
         stale = (report["signature"] != signature or report["request"] != request
                  or report.get("model") != model)

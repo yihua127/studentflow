@@ -109,4 +109,7 @@ def test_explicit_connection_is_separate_and_requests_minimal_scopes(tmp_path, m
     app = AppTest.from_string(APP).run(timeout=30)
     app.button(key="sf_calendar_sync_connect").click().run()
     assert not app.exception
-    assert calls == [("connect", {"interactive": True, "required_scopes": CALENDAR_SYNC_SCOPES})]
+    [(action, options)] = calls
+    assert action == "connect"
+    assert callable(options.pop("show_login_link"))
+    assert options == {"interactive": True, "required_scopes": CALENDAR_SYNC_SCOPES}

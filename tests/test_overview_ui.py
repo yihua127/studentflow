@@ -113,3 +113,32 @@ def test_calendar_date_selection_and_month_navigation_are_read_only(tmp_path, mo
     assert app.session_state.sf_cal_selected == "2032-03-01"
     assert Store(tmp_path / "tasks.sqlite3").tasks() == []
     assert not (tmp_path / "planning_preferences.json").exists()
+
+
+def test_todo_checkoff_persists_moves_last_and_expires(tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDENTFLOW_OVERVIEW_TEST", str(tmp_path))
+    store = Store(tmp_path / "tasks.sqlite3")
+    first = store.save_task({"title": "Early task", "due_at": "2030-01-05T10:00:00+08:00",
+                             "estimated_minutes": None, "mail_id": "early"})
+    second = store.save_task({"title": "Later task", "due_at": "2030-01-06T10:00:00+08:00",
+                              "estimated_minutes": 60, "mail_id": "late"})
+    past = store.save_task({"title": "Old task", "due_at": "2000-01-05T10:00:00+08:00",
+                            "estimated_minutes": 20, "mail_id": "old"})
+    store.set_task_completion(past, True, expected_updated_at=next(
+        task["updated_at"] for task in store.tasks() if task["id"] == past
+    ))
+
+    app = AppTest.from_string(APP).run(timeout=30)
+    assert not app.exception
+    assert [widget.key for widget in app.checkbox] == [
+        "sf_overview_done_" + first, "sf_overview_done_" + second,
+    ]
+    app.checkbox(key="sf_overview_done_" + first).check().run(timeout=30)
+    assert not app.exception
+    assert app.checkbox[-1].key == "sf_overview_done_" + first
+    saved = next(task for task in store.tasks() if task["id"] == first)
+    assert saved["is_completed"] and saved["completed_minutes"] == 0
+    app.checkbox[-1].uncheck().run(timeout=30)
+    assert not app.exception
+    assert app.checkbox[0].key == "sf_overview_done_" + first
+    assert not next(task for task in store.tasks() if task["id"] == first)["is_completed"]

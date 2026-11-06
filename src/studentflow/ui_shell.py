@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from base64 import b64encode
 from html import escape
 from pathlib import Path
 
 import streamlit as st
+
+_BRAND_IMAGE = Path(__file__).resolve().parents[2] / "assets" / "sidebar-usagi.jpg"
 
 PAGES = (
     "Overview", "Inbox (Gmail)", "Tasks", "Study Plan", "Discussions",
@@ -52,6 +55,28 @@ def apply_theme(root: Path | str) -> None:
         st.html(stylesheet)
 
 
+def render_gmail_loader(status: str, elapsed: float = 0) -> None:
+    """Render the React Bits 3×3 orbit in Streamlit's HTML layer."""
+    orbit = (0, 1, 2, 7, None, 3, 6, 5, 4)
+    marks = {"done": {2, 3, 5, 7}, "error": {0, 2, 4, 6, 8}}
+    labels = {"working": "Loading", "done": "Successful!", "error": "Connection failed"}
+    cells = []
+    for index, delay in enumerate(orbit):
+        if status == "working" and delay is not None:
+            cells.append(f'<i class="sf-lattice-lit" style="animation-delay:{delay * 108}ms"></i>')
+        else:
+            active = ' class="sf-lattice-mark"' if index in marks.get(status, ()) else ""
+            cells.append(f"<i{active}></i>")
+    st.html(
+        f'<div class="sf-gmail-loader" data-status="{status}" role="status">'
+        f'<span class="sf-lattice-grid" aria-hidden="true">{"".join(cells)}</span>'
+        f'<strong>{labels[status]}</strong>'
+        f'<span class="sf-lattice-time" aria-hidden="true">{elapsed:.1f}s</span></div>'
+    )
+    if status == "working":
+        st.html(_BRAND_IMAGE.parent / "welcome" / "loader-clock.html", unsafe_allow_javascript=True)
+
+
 def render_navigation() -> str:
     """Render one sidebar selector and return its canonical page name.
 
@@ -65,13 +90,16 @@ def render_navigation() -> str:
     if st.session_state.get(NAVIGATION_KEY) != selected:
         st.session_state[NAVIGATION_KEY] = selected
 
+    brand_image = b64encode(_BRAND_IMAGE.read_bytes()).decode("ascii")
     with st.sidebar:
         st.html(
             '<div class="sf-brand">'
-            '<div class="sf-brand-mark" aria-hidden="true">s<span>f</span></div>'
+            '<div class="sf-brand-icon" aria-hidden="true">'
+            f'<img src="data:image/jpeg;base64,{brand_image}" alt="">'
+            '<div class="sf-brand-mark">s<span>f</span></div></div>'
             '<div><div class="sf-brand-name">StudentFlow</div>'
             '<div class="sf-brand-caption">A little more clarity.</div></div>'
-            '</div><div class="sf-nav-heading">WORKSPACE</div>'
+            '</div>'
         )
         page = st.radio(
             "Workspace navigation", PAGES,

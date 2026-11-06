@@ -1,0 +1,49 @@
+<script>
+(() => {
+  if (window.sfPhotoHover) return;
+  window.sfPhotoHover = true;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+
+  let litPanel;
+  function clearLight() {
+    litPanel?.classList.remove('sf-photo-hovered');
+    litPanel = undefined;
+  }
+
+  const photoPanels = ':is(.st-key-sf_panel_attachments_browser, .st-key-sf_panel_attachments_search, .st-key-sf_panel_attachments_preview, .st-key-sf_panel_tasks_browser, .st-key-sf_panel_tasks_editor, .st-key-sf_panel_tasks_export)';
+
+  function hoverTarget(target) {
+    return target?.closest?.(photoPanels)
+      || target?.closest?.('.sf-settings-carousel > [data-testid="stColumn"]');
+  }
+
+  document.addEventListener('pointermove', event => {
+    if (event.pointerType === 'touch' || reduced.matches) return;
+    if (event.target.closest('[data-testid="stExpander"]:has([class*="st-key-task_delete_"])')) {
+      clearLight();
+      return;
+    }
+    const target = hoverTarget(event.target);
+    const panel = target?.matches(photoPanels)
+      ? target
+      : target?.querySelector('[class*="st-key-sf_panel_settings_"]');
+    if (litPanel !== panel) clearLight();
+    if (!panel) return;
+    const box = target.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const x = Math.max(0, Math.min(100, 100 * (event.clientX - box.left) / box.width));
+    const y = Math.max(0, Math.min(100, 100 * (event.clientY - box.top) / box.height));
+    panel.style.setProperty('--sf-light-x', x + '%');
+    panel.style.setProperty('--sf-light-y', y + '%');
+    panel.style.setProperty('--sf-tilt-x', ((50 - y) * .1) + 'deg');
+    panel.style.setProperty('--sf-tilt-y', ((x - 50) * .1) + 'deg');
+    panel.classList.add('sf-photo-hovered');
+    litPanel = panel;
+  });
+  document.addEventListener('dragstart', clearLight);
+  document.addEventListener('pointerout', event => {
+    const target = hoverTarget(event.target);
+    if (target && !target.contains(event.relatedTarget)) clearLight();
+  });
+})();
+</script>

@@ -19,6 +19,8 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
+from studentflow.page_heading import render_page_heading
+
 from studentflow.availability import (
     DEFAULT_HORIZON_DAYS,
     normalize_availability,
@@ -459,10 +461,10 @@ def _saved_plan(store, *, fresh: bool = True) -> None:
 
 def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | None = None) -> None:
     """Render personal schedule inputs and a separately confirmed local draft."""
-    st.html('<div class="sf-eyebrow">MAKE ROOM TO STUDY</div>')
-    st.title("Study plan")
-    st.caption(
-        "Plan confirmed tasks around your availability and commitments. All times are Singapore time."
+    render_page_heading(
+        "MAKE ROOM TO STUDY",
+        "Study plan",
+        "Plan confirmed tasks around your availability and commitments. All times are Singapore time.",
     )
     if notice := st.session_state.pop("sf_plan_notice", None):
         st.success(notice)
@@ -501,11 +503,13 @@ def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | Non
     ready = [task for task in tasks if task.get("status") == "confirmed" and not is_completed(task)]
     remaining = sum(max(0, (task.get("estimated_minutes") or 0) -
                         (task.get("completed_minutes") or 0)) for task in ready)
-    a, b, c, d = st.columns(4)
-    a.metric("Ready to plan", len(ready))
-    b.metric("Remaining study", _duration(remaining))
-    c.metric("Saved sessions", len((saved or {}).get("result", {}).get("blocks", [])))
-    d.metric("Fixed commitments", len(preferences["busy_events"]) + len(fixed_events))
+    with st.container(key="sf_plan_metrics"):
+        a, b = st.columns(2)
+        a.metric("Ready to plan", len(ready))
+        b.metric("Remaining study", _duration(remaining))
+        c, d = st.columns(2)
+        c.metric("Saved sessions", len((saved or {}).get("result", {}).get("blocks", [])))
+        d.metric("Fixed commitments", len(preferences["busy_events"]) + len(fixed_events))
     schedule, availability, commitments = st.tabs(
         ["Schedule", "Availability & preferences", "Commitments & calendar"], key="sf_plan_tabs"
     )
@@ -525,12 +529,21 @@ def render_planner(tasks: list[dict], store, data_dir: Path, *, root: Path | Non
     with availability:
         with st.container(border=True, key="sf_panel_plan_preferences"):
             settings = preferences["settings"]
-            st.markdown("**Your study rhythm**")
-            st.caption(f"{settings['study_start']}–{settings['study_end']} · "
-                       f"Up to {_duration(settings['daily_limit_minutes'])} a day · "
-                       f"{settings['break_minutes']} min between sessions")
+            rhythm = (
+                f"{settings['study_start']}–{settings['study_end']} · "
+                f"Up to {_duration(settings['daily_limit_minutes'])} a day · "
+                f"{settings['break_minutes']} min between sessions"
+            )
+            st.html(
+                '<div class="sf-plan-builder-heading"><strong>Your study rhythm</strong>'
+                f'<span>{escape(rhythm)}</span></div>'
+            )
             _settings(preferences, path)
         with st.container(border=True, key="sf_panel_plan_availability"):
+            st.html(
+                '<div class="sf-plan-builder-heading"><strong>Available study time</strong>'
+                '<span>Set your usual week once, then adjust individual dates when plans change.</span></div>'
+            )
             _availability(preferences, path)
 
     with commitments:
@@ -584,12 +597,17 @@ def _calendar_controls(store, root, data_dir, path, fixed_events,
 
 def _build_plan(tasks: list[dict], store, preferences: dict) -> None:
     """Keep draft validation and explicit save separate from visual organization."""
-    st.markdown("**Plan your next sessions**")
-    if not tasks:
-        st.info("Save a task from an email before creating a study plan.")
-    else:
+    if tasks:
         ready = sum(task.get("status") == "confirmed" and not is_completed(task) for task in tasks)
-        st.caption(f"{ready} confirmed unfinished task(s). Schedule remaining study time around your routine.")
+        st.html(
+            '<div class="sf-plan-builder-heading"><strong class="sf-plan-builder-title">'
+            'Plan your next sessions</strong>'
+            f'<span>{ready} confirmed unfinished task(s). '
+            'Schedule remaining study time around your routine.</span></div>'
+        )
+    else:
+        st.markdown("**Plan your next sessions**")
+        st.info("Save a task from an email before creating a study plan.")
     with st.expander("How your plan is built"):
         st.caption(
             "Earlier deadlines come first. Today's elapsed time is skipped; future days start "
@@ -602,11 +620,12 @@ def _build_plan(tasks: list[dict], store, preferences: dict) -> None:
     progress = store.progress_by_day()
     slots = resolve_availability(preferences, now)
     signature = planning_signature(tasks, preferences | {"completed_by_day": progress}, now)
-    left, right = st.columns(2)
-    generate = left.button("Generate study plan", disabled=not tasks or not slots,
-                           type="primary", width="stretch")
-    replan = right.button("Replan remaining tasks", disabled=not tasks or not slots,
-                          key="sf_plan_replan", width="stretch")
+    with st.container(key="sf_plan_builder_actions"):
+        left, right = st.columns(2)
+        generate = left.button("Generate study plan", disabled=not tasks or not slots,
+                               type="primary", width="stretch")
+        replan = right.button("Replan remaining tasks", disabled=not tasks or not slots,
+                              key="sf_plan_replan", width="stretch")
     if not slots:
         st.caption("Add weekly hours or a date-specific window in Availability & preferences to get started.")
     requested = st.session_state.pop("sf_replan_requested", False)

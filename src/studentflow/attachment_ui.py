@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from html import escape
 import sqlite3
 
 import streamlit as st
+
+from studentflow.page_heading import render_page_heading
 
 from studentflow.attachment_library import AttachmentLibrary, available_documents, library_id
 from studentflow.retrieval import build_chunks, search_chunks
@@ -31,9 +34,11 @@ def _document_labels(documents: list[dict]) -> dict[str, str]:
 
 
 def render_attachments(store, mails: dict) -> None:
-    st.html('<div class="sf-eyebrow">YOUR REFERENCE LIBRARY</div>')
-    st.title("Attachments")
-    st.caption("Keep course documents close, find the details you need and revisit the original source.")
+    render_page_heading(
+        "YOUR REFERENCE LIBRARY",
+        "Attachments",
+        "Keep course documents close, find the details you need and revisit the original source.",
+    )
     try:
         library = AttachmentLibrary(store.path)
         retained = {doc["library_id"] for doc in library.documents()} | library.deleted_ids()
@@ -55,14 +60,15 @@ def render_attachments(store, mails: dict) -> None:
     notice = st.session_state.pop("attachment_notice", None)
     if notice:
         st.success(notice)
-    columns = st.columns(3)
-    for column, label, value in zip(columns, (
-        "Available documents", "Saved on this device", "With readable text",
-    ), (
-        len(documents), sum(doc["saved"] for doc in documents),
-        sum(bool(doc.get("text")) for doc in documents),
-    ), strict=True):
-        column.metric(label, value)
+    with st.container(key="sf_attachment_metrics"):
+        columns = st.columns(3)
+        for column, label, value in zip(columns, (
+            "Available documents", "Saved on this device", "With readable text",
+        ), (
+            len(documents), sum(doc["saved"] for doc in documents),
+            sum(bool(doc.get("text")) for doc in documents),
+        ), strict=True):
+            column.metric(label, value)
     if not documents:
         with st.container(border=True, key="sf_panel_attachments_empty"):
             st.html('<div class="sf-empty-state"><strong>Your documents, in one place</strong>'
@@ -76,8 +82,7 @@ def render_attachments(store, mails: dict) -> None:
     document_labels = _document_labels(documents)
     browser, preview = st.columns([1, 1.7], gap="medium")
     with browser, st.container(border=True, key="sf_panel_attachments_browser"):
-        st.html('<div class="sf-eyebrow">BROWSE</div>')
-        st.subheader("Your documents")
+        st.html('<div class="sf-attachment-panel-heading"><h3>Your documents</h3></div>')
         query = st.text_input(
             "Filter documents", placeholder="Find a filename or source message", key="sf_attachment_filter",
         ).strip().casefold()
@@ -105,7 +110,6 @@ def render_attachments(store, mails: dict) -> None:
             st.caption("Attachments from messages with extracted or saved tasks are kept on this device until you delete them.")
             st.caption("Readable PDF and Word text is included in task extraction. Images and scanned pages need text recognition.")
     with browser, st.container(border=True, key="sf_panel_attachments_search"):
-        st.html('<div class="sf-eyebrow">FIND THE DETAIL</div>')
         st.subheader("Search document text")
         st.caption("Search readable text across all available documents, with the source message and page for each match.")
         with st.form("attachment_search", border=False):
@@ -115,24 +119,26 @@ def render_attachments(store, mails: dict) -> None:
         if hits is not None and not hits:
             st.info("No matching text found. Try different keywords.")
     with preview, st.container(border=True, key="sf_panel_attachments_preview"):
-        st.html('<div class="sf-eyebrow">DOCUMENT PREVIEW</div>')
-        if selected is None:
+        document = choices.get(selected)
+        filename = f'<span class="sf-attachment-title">{escape(document["filename"])}</span>' if document else ""
+        st.html(
+            '<div class="sf-attachment-panel-heading">'
+            f'<h3>Document preview</h3>{filename}'
+            '</div>'
+        )
+        if document is None:
             st.html('<div class="sf-empty-state"><strong>Find a document to preview</strong>'
                     '<p>Change the filter to browse your available documents.</p></div>')
         else:
-            document = choices[selected]
-            identifier = document["library_id"]
-            status = STATUS_LABELS.get(document["status"], "Not available")
-            with st.container(key="sf_attachment_title"):
-                st.text(document["filename"])
-            st.caption(status + " · " + ("Saved on this device" if document["saved"] else "Opened in this session"))
-            st.caption("Source message: " + document["message_subject"])
-            if not document["saved"]:
-                st.caption("Saved automatically when tasks are extracted or saved. You can also keep this document now.")
-            actions = st.columns(2)
-            if not document["saved"]:
-                with actions[0]:
-                    if st.button("Save attachment", key=f"attachment_save_{identifier}", width="stretch"):
+            with st.container(key="sf_attachment_metadata"):
+                identifier = document["library_id"]
+                status = STATUS_LABELS.get(document["status"], "Not available")
+                st.caption(status + " · " + ("Saved on this device" if document["saved"] else "Opened in this session"))
+                st.caption("Source message: " + document["message_subject"])
+                if not document["saved"]:
+                    st.caption("Saved automatically when tasks are extracted or saved. You can also keep this document now.")
+                if not document["saved"]:
+                    if st.button("Save attachment", key=f"attachment_save_{identifier}"):
                         try:
                             library.save_for_message(mails[document["mail_id"]], only_library_id=identifier)
                         except (OSError, sqlite3.Error):
@@ -140,29 +146,34 @@ def render_attachments(store, mails: dict) -> None:
                         else:
                             st.session_state.attachment_notice = "Attachment saved on this device."
                             st.rerun()
-            content = library.content(identifier) if document["saved"] else opened_content.get(identifier)
-            with actions[1] if not document["saved"] else actions[0]:
+                content = library.content(identifier) if document["saved"] else opened_content.get(identifier)
                 if content:
-                    st.download_button(
-                        "Download original", content, document["filename"],
-                        document.get("content_type", "application/octet-stream"),
-                        key=f"attachment_download_{identifier}", icon=":material/download:", width="stretch",
-                    )
+                    with st.container(horizontal=True, horizontal_alignment="center"):
+                        st.download_button(
+                            "Download original", content, document["filename"],
+                            document.get("content_type", "application/octet-stream"),
+                            key=f"attachment_download_{identifier}", icon=":material/download:", width="content",
+                        )
                 else:
                     st.caption("The original file was unavailable or exceeded the supported limits.")
-            for warning in document.get("warnings", []):
-                st.warning(warning)
-            st.divider()
-            st.write("**Document text**")
-            if document.get("text"):
-                with st.container(border=False, key="sf_attachment_text"):
-                    st.text(document["text"])
-            else:
-                st.caption("No readable text is available. Check the document status and any reading notes above.")
-            with st.expander("Manage attachment"):
+                for warning in document.get("warnings", []):
+                    st.warning(warning)
+            with st.container(gap="small", key="sf_attachment_reading"):
+                st.html('<hr class="sf-attachment-divider">')
+                st.write("**Document text**")
+                if document.get("text"):
+                    with st.container(border=False, key="sf_attachment_text"):
+                        st.text(document["text"])
+                else:
+                    st.caption("No readable text is available. Check the document status and any reading notes above.")
+            with st.container(key="sf_attachment_manage"), st.expander("Manage attachment"):
                 confirmed = st.checkbox("Delete this attachment from the library. Saved tasks will remain.",
                                         key=f"attachment_delete_confirm_{identifier}")
-                if st.button("Delete attachment", key=f"attachment_delete_{identifier}", disabled=not confirmed):
+                with st.container(horizontal=True, horizontal_alignment="center"):
+                    delete_requested = st.button(
+                        "Delete attachment", key=f"attachment_delete_{identifier}", disabled=not confirmed,
+                    )
+                if delete_requested:
                     try:
                         library.delete(identifier)
                     except (OSError, sqlite3.Error):

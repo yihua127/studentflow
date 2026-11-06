@@ -81,7 +81,6 @@ def render_mail_list(headers, store, account):
     elif selected != st.session_state.get("batch_selected", []):
         set_selection(selected)
     records, names = label_state(store, account, list(by_id))
-    st.markdown("**Messages**")
     query = st.text_input("Search messages", placeholder="Search subject or sender", key="sf_mail_search")
     filters = {"all": "All messages", "unclassified": "Unclassified", **names}
     if st.session_state.get("sf_mail_filter", "all") not in filters:

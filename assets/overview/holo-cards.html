@@ -1,0 +1,43 @@
+<script>
+(() => {
+  if (document.documentElement.dataset.sfHoloCards) return;
+  document.documentElement.dataset.sfHoloCards = 'true';
+  const selector = [
+    '.sf-overview-stat',
+    '.st-key-sf_panel_overview_calendar',
+    '.st-key-sf_panel_overview_todos',
+    '.st-key-sf_shortcut_cards [class*="st-key-sf_panel_overview_route_"]',
+    '.st-key-sf_overview_daily_progress',
+    '.st-key-sf_mail_browser',
+    '.st-key-sf_mail_workspace'
+  ].join(', ');
+  const motion = matchMedia('(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)');
+  let active;
+
+  function clearHolo() {
+    active?.classList.remove('sf-holo-active');
+    active = undefined;
+  }
+
+  document.addEventListener('pointermove', event => {
+    const card = motion.matches && event.pointerType === 'mouse' && event.target.closest(selector);
+    if (card !== active) {
+      clearHolo();
+      if (!card) return;
+      active = card;
+      card.classList.add('sf-holo-active');
+    }
+    if (!active) return;
+    const rect = active.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    active.style.setProperty('--sf-holo-x', x * 100 + '%');
+    active.style.setProperty('--sf-holo-y', y * 100 + '%');
+    active.style.setProperty('--sf-holo-rx', (0.5 - y) * 2.4 + 'deg');
+    active.style.setProperty('--sf-holo-ry', (x - 0.5) * 2.4 + 'deg');
+  });
+  document.documentElement.addEventListener('pointerleave', clearHolo);
+  window.addEventListener('blur', clearHolo);
+  motion.addEventListener('change', clearHolo);
+})();
+</script>

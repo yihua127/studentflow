@@ -82,7 +82,9 @@ def planned_daily_minutes(plans: list[dict], day: str) -> dict[str, int]:
 
 
 @st.fragment(run_every="60s")
-def render_daily_review(store, data_dir: Path) -> None:
+def render_daily_review(
+    store, data_dir: Path, *, show_heading: bool = True, show_empty: bool = False,
+) -> None:
     """Check while the page is open; show missed check-ins on the next visit."""
     try:
         due = due_daily_reviews(store.plans(), store.daily_reviews(), datetime.now(UTC))
@@ -98,9 +100,12 @@ def render_daily_review(store, data_dir: Path) -> None:
                 st.session_state.pop("sf_daily_review_notice", None)
                 st.rerun()
     if not due:
+        if show_empty:
+            st.caption("No study check-ins are due right now.")
         return
     task_map = {task["id"]: task for task in store.tasks()}
-    st.subheader("Daily progress")
+    if show_heading:
+        st.subheader("Daily progress")
     st.caption(
         "Your planned study end time has arrived. Record what you completed to update "
         "remaining study time. Missed check-ins are kept for your next visit."

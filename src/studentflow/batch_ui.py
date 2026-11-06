@@ -530,7 +530,14 @@ def render_batch_extraction(
             _selection_changed()
             st.session_state.batch_external_selection = selected
     st.caption(f"{len(selected)} message(s) selected.")
-    if st.button("Reply with assistant", key="batch_reply", disabled=not (ready and len(selected) == 1)):
+    with st.container(horizontal=True, horizontal_alignment="center", gap="small"):
+        reply_clicked = st.button(
+            "Reply with assistant", key="batch_reply", disabled=not (ready and len(selected) == 1),
+        )
+        view_clicked = st.button(
+            "View selected messages", key="batch_view", disabled=not (ready and selected),
+        )
+    if reply_clicked:
         with st.spinner("Opening the selected email for your reply..."):
             try:
                 opened = fetch_selected_messages(
@@ -554,7 +561,7 @@ def render_batch_extraction(
                 st.error("This email could not be opened for a reply. Select it again to retry.")
     if len(selected) != 1:
         st.caption("Choose one message to reply with the assistant.")
-    if st.button("View selected messages", key="batch_view", disabled=not (ready and selected)):
+    if view_clicked:
         with st.spinner("Opening selected messages..."):
             try:
                 opened = fetch_selected_messages(
@@ -602,8 +609,9 @@ def render_batch_extraction(
     signature = hashlib.sha256(json.dumps(
         [UNIFIED_VERSION, PIPELINE_VERSION, RECONCILIATION_VERSION, account, selected, model, suggest_effort],
     ).encode()).hexdigest()
-    if st.button("Analyze selected messages", key="batch_extract", type="primary",
-                 disabled=not (ready and api_key and model and consent and selected)):
+    analyze_row = st.container(horizontal=True, horizontal_alignment="center")
+    if analyze_row.button("Analyze selected messages", key="batch_extract", type="primary",
+                          disabled=not (ready and api_key and model and consent and selected)):
         # A failed new attempt must not leave a previous successful preview saveable.
         for key in ("batch_results", "batch_fixed_result", "batch_analysis_signature", "batch_analysis_run"):
             st.session_state.pop(key, None)

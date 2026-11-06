@@ -1,0 +1,77 @@
+<script>
+(() => {
+  if (document.documentElement.dataset.sfTaskDrag) return;
+  document.documentElement.dataset.sfTaskDrag = 'true';
+
+  const taskCard = '.st-key-sf_task_list [class*="st-key-sf_task_row_"]';
+  const mailCard = '.st-key-sf_mail_list [class*="st-key-sf_mail_row_"]';
+  const taskEditor = '.st-key-sf_panel_tasks_editor';
+  const mailEditor = '.st-key-sf_mail_workspace';
+  let draggedCard;
+  let editorSelector;
+  const previewSize = 56;
+  const mascot = document.getElementById('sf-welcome-template')?.content.querySelector('.sf-welcome-usagi');
+  const preview = new Image(previewSize, previewSize);
+  if (mascot) preview.src = mascot.src;
+
+  function enableDrag() {
+    document.querySelectorAll(taskCard + ', ' + mailCard).forEach(card => { card.draggable = true; });
+  }
+
+  function clearDrag() {
+    draggedCard = undefined;
+    if (editorSelector) document.querySelector(editorSelector)?.classList.remove('sf-task-drop-active');
+    editorSelector = undefined;
+  }
+
+  const observer = new MutationObserver(enableDrag);
+  observer.observe(document.body, { childList: true, subtree: true });
+  enableDrag();
+
+  document.addEventListener('dragstart', event => {
+    const card = event.target.closest(taskCard + ', ' + mailCard);
+    if (!card || !event.dataTransfer) return;
+    draggedCard = card;
+    editorSelector = card.matches(mailCard) ? mailEditor : taskEditor;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-studentflow-item', 'item');
+    if (preview.complete && preview.naturalWidth) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = previewSize;
+      const scale = previewSize / Math.max(preview.naturalWidth, preview.naturalHeight);
+      const width = preview.naturalWidth * scale;
+      const height = preview.naturalHeight * scale;
+      canvas.getContext('2d').drawImage(preview, (previewSize - width) / 2, (previewSize - height) / 2, width, height);
+      canvas.style.cssText = 'position:fixed;left:-100px;top:0;pointer-events:none';
+      document.body.append(canvas);
+      event.dataTransfer.setDragImage(canvas, previewSize / 2, previewSize / 2);
+      requestAnimationFrame(() => canvas.remove());
+    }
+  });
+
+  document.addEventListener('dragover', event => {
+    const editor = editorSelector && event.target.closest(editorSelector);
+    if (!draggedCard || !editor) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    editor.classList.add('sf-task-drop-active');
+  });
+
+  document.addEventListener('dragleave', event => {
+    const editor = editorSelector && event.target.closest(editorSelector);
+    if (editor && !editor.contains(event.relatedTarget)) editor.classList.remove('sf-task-drop-active');
+  });
+
+  document.addEventListener('drop', event => {
+    if (!draggedCard || !event.target.closest(editorSelector)) return;
+    event.preventDefault();
+    const actionSelector = editorSelector === mailEditor
+      ? '[class*="st-key-sf_mail_open_"] button' : '[class*="st-key-sf_task_open_"] button';
+    const action = draggedCard.isConnected && draggedCard.querySelector(actionSelector);
+    clearDrag();
+    action?.click();
+  });
+
+  document.addEventListener('dragend', clearDrag);
+})();
+</script>

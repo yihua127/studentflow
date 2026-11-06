@@ -1,0 +1,311 @@
+<style>
+body:has(> #sf-welcome[open]) [data-testid="stApp"] {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body.sf-workspace-arriving {
+    background: #66a9ef url("{{MEADOW}}") center / cover no-repeat fixed;
+  }
+  body.sf-workspace-arriving [data-testid="stApp"] {
+    animation: sf-workspace-arrive .72s cubic-bezier(.18, .74, .23, 1) both;
+  }
+}
+@keyframes sf-workspace-arrive {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+#sf-welcome {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: #66a9ef url("{{MEADOW}}") center / cover no-repeat;
+}
+
+.sf-welcome-scene {
+  position: absolute;
+  left: 50%;
+  top: 43%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+}
+
+.sf-welcome-usagi {
+  width: clamp(100px, min(20vw, 29vh), 250px);
+  animation: sf-welcome-pop 550ms 650ms both;
+}
+
+.sf-welcome-bubble {
+  position: relative;
+  width: clamp(228px, min(42vw, 62vh), 480px);
+  margin-bottom: -2%;
+  animation: sf-welcome-pop 420ms 1350ms both;
+}
+
+.sf-welcome-bubble img { display: block; width: 100%; }
+.sf-welcome-bubble p {
+  position: absolute;
+  inset: 11% 15% 26%;
+  display: grid;
+  align-content: center;
+  margin: 0;
+  text-align: center;
+  color: #17223d;
+  font: bold clamp(17px, 2.8vw, 36px)/1.15 var(--sf-font, monospace);
+}
+
+.sf-welcome-connect, .sf-welcome-skip {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  border: 2px solid #17223d;
+  border-radius: 6px;
+  padding: .55rem .85rem;
+  background: #fff;
+  color: #17223d;
+  font: bold .85rem var(--sf-font, monospace);
+  cursor: pointer;
+}
+
+.sf-welcome-connect {
+  right: auto;
+  left: 50%;
+  bottom: max(3.5rem, 10%);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+@keyframes sf-welcome-pop {
+  from { opacity: 0; transform: translateY(12px) scale(.88); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sf-welcome-usagi, .sf-welcome-bubble { animation: none; }
+}
+body.sf-gmail-onboarding::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: #66a9ef url("{{GMAIL_MEADOW}}") center / cover no-repeat;
+  z-index: 999990;
+}
+
+body.sf-gmail-onboarding .st-key-sf_gmail_connection {
+  position: fixed;
+  z-index: 999991;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  box-sizing: border-box;
+  background: #242424;
+  padding: clamp(12px, 2.2vw, 20px);
+  clip-path: polygon(0 24px, 12px 24px, 12px 12px, 24px 12px, 24px 0,
+    calc(100% - 24px) 0, calc(100% - 24px) 12px, calc(100% - 12px) 12px,
+    calc(100% - 12px) 24px, 100% 24px, 100% calc(100% - 24px),
+    calc(100% - 12px) calc(100% - 24px), calc(100% - 12px) calc(100% - 12px),
+    calc(100% - 24px) calc(100% - 12px), calc(100% - 24px) 100%,
+    24px 100%, 24px calc(100% - 12px), 12px calc(100% - 12px),
+    12px calc(100% - 24px), 0 calc(100% - 24px));
+}
+
+body.sf-gmail-onboarding .st-key-sf_gmail_connection details {
+  background: white;
+  color: #111;
+  border: 0;
+  border-radius: 0;
+  padding: clamp(.4rem, 2vw, 1.25rem);
+}
+
+body.sf-gmail-onboarding .st-key-sf_gmail_connection summary {
+  pointer-events: none;
+}
+
+body.sf-gmail-onboarding [data-testid="stSidebar"],
+body.sf-gmail-onboarding [data-testid="stSidebarCollapsedControl"],
+body.sf-gmail-onboarding [data-testid="stHeader"] {
+  visibility: hidden;
+}
+
+/* The same account controls sit in the sidebar outside onboarding. */
+body.sf-gmail-onboarding [data-testid="stSidebar"] {
+  z-index: 999991;
+  transform: none;
+}
+
+body.sf-gmail-onboarding [data-testid="stSidebar"],
+body.sf-gmail-onboarding [data-testid="stSidebarContent"],
+body.sf-gmail-onboarding [data-testid="stSidebarUserContent"] {
+  overflow: visible;
+}
+
+body.sf-gmail-onboarding .st-key-sf_gmail_connection {
+  visibility: visible;
+}
+
+.st-key-sf_gmail_success { display: none; }
+
+body.sf-gmail-onboarding .st-key-sf_gmail_success {
+  display: flex;
+  background: #fff;
+  padding: clamp(.75rem, 3vw, 2rem);
+}
+
+body.sf-gmail-onboarding .st-key-sf_gmail_success [data-testid="stHorizontalBlock"] {
+  flex-flow: row nowrap;
+}
+
+body.sf-gmail-onboarding .st-key-sf_gmail_success [data-testid="stColumn"] {
+  min-width: 0;
+}
+
+body.sf-gmail-onboarding .st-key-sf_gmail_connection:has(.st-key-sf_gmail_success)
+  [data-testid="stExpander"] {
+  display: none;
+}
+
+.sf-gmail-exit { display: none; }
+
+body.sf-gmail-onboarding .sf-gmail-exit {
+  display: inline-block;
+  color: #111;
+  background: #fff;
+  border: 2px solid #242424;
+  padding: .45rem .85rem;
+  font: bold .85rem var(--sf-font, monospace);
+  cursor: pointer;
+}
+</style>
+<template id="sf-welcome-template">
+  <dialog id="sf-welcome" aria-label="Welcome to Student Flow">
+    <div class="sf-welcome-scene">
+      <div class="sf-welcome-bubble">
+        <img src="{{BUBBLE}}" alt="">
+        <p aria-live="polite">Hi! Welcome to Student Flow!</p>
+      </div>
+      <img class="sf-welcome-usagi" src="{{USAGI}}" alt="Usagi">
+    </div>
+    <button class="sf-welcome-connect" type="button" hidden>Continue to Gmail</button>
+    <button class="sf-welcome-skip" type="button">Skip intro</button>
+  </dialog>
+</template>
+<script>
+(() => {
+  const key = "studentflow:welcome-seen";
+  if (window[key]) return;
+  const template = document.getElementById("sf-welcome-template");
+  const intro = template.content.firstElementChild.cloneNode(true);
+  const usagi = intro.querySelector(".sf-welcome-usagi");
+  document.documentElement.style.setProperty("--sf-running-usagi", `url("${usagi.src}")`);
+  window[key] = true;
+  document.body.append(intro);
+  const connect = intro.querySelector(".sf-welcome-connect");
+  let connected = false;
+  let readinessObserver;
+  const showNext = () => {
+    const state = document.getElementById("sf-welcome-gmail-state");
+    if (!state) return;
+    readinessObserver?.disconnect();
+    connected = state.dataset.status === "connected";
+    intro.querySelector(".sf-welcome-bubble p").textContent = connected
+      ? "You’re all set!"
+      : "Now, let’s connect your Gmail!";
+    connect.textContent = connected ? "Enter StudentFlow" : "Continue to Gmail";
+    connect.hidden = false;
+  };
+  const timer = setTimeout(() => {
+    readinessObserver = new MutationObserver(showNext);
+    readinessObserver.observe(document.body, { childList: true, subtree: true });
+    showNext();
+  }, 4200);
+  intro.addEventListener("close", () => {
+    clearTimeout(timer);
+    readinessObserver?.disconnect();
+    intro.remove();
+  }, { once: true });
+  let entering = false;
+  const enterOverview = () => {
+    if (entering) return;
+    entering = true;
+    const skip = intro.querySelector(".sf-welcome-skip");
+    skip.disabled = connect.disabled = true;
+
+    const arrive = () => {
+      document.body.classList.add("sf-workspace-arriving");
+      document.body.classList.remove("sf-gmail-onboarding");
+      if (intro.open) intro.close();
+      const app = document.querySelector('[data-testid="stApp"]');
+      const finish = () => {
+        document.body.classList.remove("sf-workspace-arriving");
+        window.dispatchEvent(new Event("resize"));
+      };
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches || !app) finish();
+      else setTimeout(finish, 750);
+    };
+
+    let selected = false;
+    const check = () => {
+      if (document.getElementById("sf-workspace-page")?.dataset.page === "Overview") {
+        observer.disconnect();
+        clearTimeout(timeout);
+        arrive();
+        return;
+      }
+      const options = document.querySelectorAll(".st-key-sf_app_tab [data-testid='stRadioOption']");
+      const overview = Array.from(options).find(option => /\bOverview$/.test(option.textContent.trim()));
+      const input = overview?.querySelector("input[type='radio']");
+      if (!selected && input && !input.checked) {
+        selected = true;
+        input.click();
+      }
+    };
+    const observer = new MutationObserver(check);
+    const timeout = setTimeout(() => {
+      observer.disconnect();
+      entering = false;
+      skip.disabled = connect.disabled = false;
+    }, 8000);
+    observer.observe(document.body, {childList: true, subtree: true, attributes: true,
+      attributeFilter: ["data-page"]});
+    check();
+  };
+  intro.querySelector(".sf-welcome-skip").addEventListener("click", enterOverview);
+  connect.addEventListener("click", () => {
+    if (connected) {
+      enterOverview();
+      return;
+    }
+    intro.close();
+    const panel = document.querySelector(".st-key-sf_gmail_connection details");
+    if (panel) {
+      document.body.classList.add("sf-gmail-onboarding");
+      panel.open = true;
+      const heading = panel.querySelector("summary");
+      heading?.focus();
+      panel.scrollIntoView({ block: "nearest" });
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".sf-gmail-exit")) {
+      if (event.target.closest(".sf-gmail-exit[data-enter-overview]")) {
+        enterOverview();
+        return;
+      }
+      document.body.classList.remove("sf-gmail-onboarding");
+      document.querySelector(".st-key-sf_gmail_connection summary")?.focus();
+    }
+  });
+  intro.showModal();
+})();
+</script>
