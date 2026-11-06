@@ -259,7 +259,9 @@ def _duplicate_ids(tasks: list[dict]) -> set[str]:
 
 
 def is_completed(task: dict) -> bool:
-    """Completion depends on recorded effort, separately from confirmation status."""
+    """A task can be checked off or completed through recorded study effort."""
+    if task.get("marked_complete") is True:
+        return True
     estimate, completed = task.get("estimated_minutes"), task.get("completed_minutes", 0)
     return (
         isinstance(estimate, int) and not isinstance(estimate, bool) and estimate > 0

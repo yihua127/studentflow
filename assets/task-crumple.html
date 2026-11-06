@@ -1,0 +1,108 @@
+<script>
+(() => {
+  if (document.documentElement.dataset.sfTaskCrumple) return;
+  document.documentElement.dataset.sfTaskCrumple = 'true';
+
+  let staged;
+  let submitting;
+  function restore() {
+    if (!staged) return;
+    const { editor, stage, trigger, animation } = staged;
+    staged = undefined;
+    animation?.cancel();
+    stage.remove();
+    editor.classList.remove('sf-task-crumpled');
+    trigger.focus();
+  }
+
+  function discard() {
+    const button = staged?.submit;
+    if (!button?.isConnected || button.disabled) {
+      restore();
+      return;
+    }
+    restore();
+    submitting = button;
+    try {
+      button.click();
+    } finally {
+      submitting = undefined;
+    }
+  }
+
+  document.addEventListener('click', event => {
+    const trigger = event.target.closest(
+      '[class*="st-key-task_delete_"]:is([class*="_stage"], [class*="_button"]) button'
+    );
+    if (!trigger || trigger.disabled || trigger === submitting) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const editor = trigger.closest('.st-key-sf_panel_tasks_editor');
+    const template = document.querySelector('.sf-task-disposal-template');
+    const submit = editor?.querySelector('[class*="st-key-task_delete_"][class*="_dispose"] button')
+      || (trigger.closest('[class*="st-key-task_delete_"][class*="_button"]') ? trigger : null);
+    if (!template || !submit || staged) return;
+
+    const stage = template.content.firstElementChild.cloneNode(true);
+    const paper = stage.querySelector('.sf-crumpled-paper');
+    const bin = stage.querySelector('.sf-task-trash');
+    paper.addEventListener('click', () => {
+      paper.setAttribute('aria-pressed', 'true');
+      bin.focus();
+    });
+    bin.addEventListener('click', () => {
+      if (paper.getAttribute('aria-pressed') === 'true') discard();
+    });
+    let draggingPaper = false;
+    paper.addEventListener('dragstart', drag => {
+      draggingPaper = true;
+      drag.dataTransfer.effectAllowed = 'move';
+      drag.dataTransfer.setData('application/x-studentflow-paper', 'paper');
+    });
+    paper.addEventListener('dragend', () => {
+      draggingPaper = false;
+      bin.classList.remove('sf-trash-over');
+    });
+    bin.addEventListener('dragover', drag => {
+      if (!draggingPaper || !drag.dataTransfer.types.includes('application/x-studentflow-paper')) return;
+      drag.preventDefault();
+      drag.dataTransfer.dropEffect = 'move';
+      bin.classList.add('sf-trash-over');
+    });
+    bin.addEventListener('dragleave', () => bin.classList.remove('sf-trash-over'));
+    bin.addEventListener('drop', drag => {
+      if (!draggingPaper || drag.dataTransfer.getData('application/x-studentflow-paper') !== 'paper') return;
+      drag.preventDefault();
+      discard();
+    });
+    stage.querySelector('.sf-task-keep').addEventListener('click', restore);
+
+    staged = { editor, stage, trigger, submit };
+    function showPaper() {
+      if (staged?.stage !== stage || !editor.isConnected || !trigger.isConnected) return;
+      editor.append(stage);
+      editor.classList.add('sf-task-crumpled');
+      paper.focus();
+    }
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      showPaper();
+    } else {
+      const animation = editor.animate([
+        { transform: 'scale(1)', clipPath: 'polygon(0 0, 50% 0, 100% 0, 100% 50%, 100% 100%, 50% 100%, 0 100%, 0 50%)' },
+        { transform: 'perspective(600px) rotateX(27deg) rotate(-7deg) scale(.76, .6)', clipPath: 'polygon(7% 9%, 49% 16%, 93% 4%, 83% 52%, 92% 91%, 47% 82%, 12% 92%, 18% 49%)', offset: .45 },
+        { transform: 'perspective(600px) rotateY(-31deg) rotate(19deg) scale(.32, .38)', clipPath: 'polygon(15% 28%, 44% 9%, 76% 15%, 91% 46%, 76% 86%, 50% 98%, 18% 82%, 5% 50%)', offset: .78 },
+        { transform: 'rotate(-16deg) scale(.12)', clipPath: 'polygon(15% 28%, 44% 9%, 76% 15%, 91% 46%, 76% 86%, 50% 98%, 18% 82%, 5% 50%)', opacity: .3 }
+      ], { duration: 720, easing: 'cubic-bezier(.48,.04,.7,.8)' });
+      staged.animation = animation;
+      animation.onfinish = showPaper;
+    }
+  }, true);
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && staged) restore();
+  });
+  new MutationObserver(() => {
+    if (staged && (!staged.editor.isConnected || !staged.trigger.isConnected)) restore();
+  }).observe(document.body, { childList: true, subtree: true });
+})();
+</script>

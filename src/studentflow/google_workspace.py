@@ -12,7 +12,7 @@ import os
 import re
 import tempfile
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -231,6 +231,7 @@ def import_workspace_token(
 def connect_workspace(
     client_path: Path, token_path: Path, interactive: bool = False,
     *, required_scopes: Sequence[str] | None = None,
+    show_login_link: Callable[[str], None] | None = None,
 ) -> GoogleWorkspaceClient:
     """Restore consent or, only with interactive=True, explicitly sign in again.
 
@@ -254,7 +255,16 @@ def connect_workspace(
     if interactive:
         try:
             with _quiet_google(allow_partial_scopes=True):
-                flow = InstalledAppFlow.from_client_config(config, sorted(required))
+                flow_type = InstalledAppFlow
+                if show_login_link is not None:
+                    class LinkedLoginFlow(InstalledAppFlow):
+                        def authorization_url(self, **kwargs):
+                            url, state = super().authorization_url(**kwargs)
+                            show_login_link(url)
+                            return url, state
+
+                    flow_type = LinkedLoginFlow
+                flow = flow_type.from_client_config(config, sorted(required))
                 original_request = flow.oauth2session.request
 
                 def limited_oauth_request(*args: Any, **kwargs: Any) -> Any:
@@ -264,7 +274,7 @@ def connect_workspace(
                 flow.oauth2session.request = limited_oauth_request
                 credentials = flow.run_local_server(
                     host="127.0.0.1", port=0, timeout_seconds=180,
-                    open_browser=True, authorization_prompt_message=None,
+                    open_browser=show_login_link is None, authorization_prompt_message=None,
                     success_message="Google authorization received. Return to StudentFlow.",
                     prompt="select_account consent", access_type="offline",
                     include_granted_scopes="false",

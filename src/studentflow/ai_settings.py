@@ -5,10 +5,13 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+from html import escape
 from pathlib import Path
 
 import dotenv
 import streamlit as st
+
+from studentflow.page_heading import render_page_heading
 
 from studentflow.extraction import extract_tasks
 
@@ -80,9 +83,11 @@ def check_ai_connection(api_key: str, model: str) -> bool:
 
 def render_ai_settings(root: Path) -> None:
     """Render settings without ever sending the saved key to a form field."""
-    st.html('<div class="sf-eyebrow">SET UP YOUR WORKSPACE</div>')
-    st.title("Settings")
-    st.caption("Manage the AI connection used for task extraction, replies and discussion summaries.")
+    render_page_heading(
+        "SET UP YOUR WORKSPACE",
+        "Settings",
+        "Manage the AI connection used for task extraction, replies and discussion summaries.",
+    )
     try:
         api_key, model = read_ai_settings(root)
     except ValueError as error:
@@ -93,9 +98,8 @@ def render_ai_settings(root: Path) -> None:
         st.session_state["sf_ai_model_input"] = model
         st.success("AI settings saved on this device.")
     st.session_state.setdefault("sf_ai_model_input", model)
-    configuration, support = st.columns([1.2, 1], gap="medium")
+    configuration, support, setup = st.columns(3, gap="medium")
     with configuration, st.container(border=True, key="sf_panel_settings_configuration"):
-        st.html('<div class="sf-eyebrow">01 / CONFIGURE</div>')
         st.subheader("AI settings")
         st.caption("Save your connection details on this device. Changes take effect after saving.")
         with st.form("sf_ai_settings_form", clear_on_submit=True):
@@ -119,14 +123,18 @@ def render_ai_settings(root: Path) -> None:
                 st.rerun()
         st.caption("Your saved key is never filled back into this form. Leave it blank when changing only the model.")
     with support, st.container(border=True, key="sf_panel_settings_connection"):
-        st.html('<div class="sf-eyebrow">02 / CHECK</div>')
         st.subheader("Connection check")
-        st.html(
+        status = (
             '<span class="sf-pill sf-pill-success">Key saved</span>' if api_key else
             '<span class="sf-pill sf-pill-warning">Setup needed</span>'
         )
-        st.caption("Current saved model")
-        st.text(model)
+        st.html(
+            '<div class="sf-settings-connection-summary">'
+            f'<div>{status}</div>'
+            '<div class="sf-settings-model"><span>Current saved model</span>'
+            f'<strong>{escape(model)}</strong></div>'
+            '</div>'
+        )
         if not api_key:
             st.caption("Add your OpenAI API key to enable AI extraction.")
         st.caption(
@@ -147,18 +155,19 @@ def render_ai_settings(root: Path) -> None:
                         st.success("AI connection successful. Task extraction is ready.")
                     else:
                         st.warning("The model responded. Try the check again to verify task extraction.")
-    with st.container(border=True, key="sf_panel_settings_help"):
+    with setup, st.container(border=True, key="sf_panel_settings_help"):
         st.subheader("Setup & account")
         st.caption("Find your key, check API billing or follow the setup guide.")
-        links = st.columns(3, gap="medium")
-        for column, (label, url) in zip(
-            links, (
-                ("Create an API key", "https://platform.openai.com/api-keys"),
-                ("OpenAI billing", "https://platform.openai.com/settings/organization/billing/overview"),
-                ("Setup guide", "https://github.com/yihua127/studentflow/blob/main/docs/OPENAI_SETUP.md"),
-            ), strict=True,
+        for label, url in (
+            ("Create an API key", "https://platform.openai.com/api-keys"),
+            ("OpenAI billing", "https://platform.openai.com/settings/organization/billing/overview"),
+            ("Setup guide", "https://github.com/yihua127/studentflow/blob/main/docs/OPENAI_SETUP.md"),
         ):
-            with column:
-                st.link_button(
-                    label, url, width="stretch", icon=":material/open_in_new:",
-                )
+            st.link_button(label, url, width="stretch", icon=":material/open_in_new:")
+    st.html(
+        '<nav class="sf-settings-carousel-controls" aria-label="Settings cards" hidden>'
+        '<button type="button" data-step="-1" aria-label="Previous settings card">‹</button>'
+        '<output aria-live="polite">AI settings</output>'
+        '<button type="button" data-step="1" aria-label="Next settings card">›</button>'
+        '</nav>'
+    )

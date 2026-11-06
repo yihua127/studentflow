@@ -1,0 +1,75 @@
+<script>
+(() => {
+  if (document.documentElement.dataset.sfDiscussionCarousel) return;
+  document.documentElement.dataset.sfDiscussionCarousel = 'true';
+
+  const desktop = matchMedia('(min-width: 1001px)');
+  const panels = {
+    sources: '.st-key-sf_panel_assistant_sources_sf_meeting_',
+    request: '.st-key-sf_panel_assistant_request_sf_meeting_',
+  };
+  const rowSelector = '[data-testid="stHorizontalBlock"]';
+  const controlSelector = '[data-discussion-target]';
+  let lastWheel = 0;
+
+  function row() {
+    return document.querySelector(panels.sources)?.closest(rowSelector);
+  }
+
+  function select(card) {
+    const deck = row();
+    if (!deck || !deck.querySelector(panels.request)) return;
+    if (desktop.matches) deck.dataset.discussionCard = card;
+    else delete deck.dataset.discussionCard;
+
+    for (const [name, selector] of Object.entries(panels)) {
+      const panel = deck.querySelector(selector);
+      panel.inert = desktop.matches && name !== card;
+    }
+    for (const button of document.querySelectorAll(controlSelector)) {
+      button.setAttribute('aria-pressed', String(button.dataset.discussionTarget === card));
+    }
+  }
+
+  function sync() {
+    select(row()?.dataset.discussionCard || 'sources');
+  }
+
+  document.addEventListener('click', event => {
+    const control = event.target.closest(controlSelector);
+    if (control) {
+      select(control.dataset.discussionTarget);
+      return;
+    }
+    const column = event.target.closest('[data-testid="stColumn"]');
+    const deck = column?.parentElement;
+    if (!deck?.dataset.discussionCard) return;
+    const other = deck.dataset.discussionCard === 'sources' ? 'request' : 'sources';
+    if (column.querySelector(panels[other])) {
+      select(other);
+      document.querySelector('[data-discussion-target="' + other + '"]')?.focus({ preventScroll: true });
+    }
+  });
+
+  document.addEventListener('wheel', event => {
+    const deck = event.target.closest('[data-discussion-card]');
+    if (!deck || event.ctrlKey) return;
+    const active = deck.dataset.discussionCard;
+    const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey;
+    // Vertical scrolling inside the active form remains available for its content.
+    if (!horizontal && event.target.closest(panels[active])) return;
+    const delta = horizontal ? (event.deltaX || event.deltaY) : event.deltaY;
+    if (!delta) return;
+    event.preventDefault();
+    const now = performance.now();
+    const elapsed = now - lastWheel;
+    lastWheel = now;
+    if (elapsed < 180) return;
+    select(delta > 0 ? 'request' : 'sources');
+  }, { passive: false });
+
+  new MutationObserver(sync).observe(document.body, { childList: true, subtree: true });
+  desktop.addEventListener('change', sync);
+  sync();
+})();
+</script>

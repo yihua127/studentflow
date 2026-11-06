@@ -7,12 +7,18 @@ import hashlib
 import io
 import json
 import sqlite3
+from base64 import b64encode
 from collections import Counter
 from datetime import datetime
 from html import escape
+from pathlib import Path
+from time import sleep
 from zoneinfo import ZoneInfo
 
 import streamlit as st
+
+from studentflow.page_heading import render_page_heading
+from studentflow.planner import is_completed as _is_completed
 
 ZONE = ZoneInfo("Asia/Singapore")
 
@@ -33,11 +39,6 @@ def _deadline_input(value):
         return datetime.fromisoformat(value).astimezone(ZONE).strftime("%Y-%m-%d %H:%M")
     except (ValueError, TypeError):
         return str(value)
-
-
-def _is_completed(task):
-    estimate = task.get("estimated_minutes") or 0
-    return bool(estimate > 0 and (task.get("completed_minutes") or 0) >= estimate)
 
 
 def _duration(minutes):
@@ -103,7 +104,9 @@ def _render_task_card(task, active):
         label, style = _task_status(task)
         estimate = task.get("estimated_minutes") or 0
         completed = task.get("completed_minutes") or 0
-        remaining = _duration(max(0, estimate - completed)) + " left" if estimate else "Time needed"
+        remaining = "" if _is_completed(task) else (
+            _duration(max(0, estimate - completed)) + " left" if estimate else "Time needed"
+        )
         st.html(
             '<div class="sf-task-meta"><span class="sf-pill ' + style + '">'
             + label + '</span><span>' + escape(remaining) + '</span></div>'
@@ -115,16 +118,19 @@ def _render_task_card(task, active):
 
 def _render_task_summary(task):
     label, style = _task_status(task)
-    st.html('<div class="sf-task-summary"><span class="sf-pill ' + style + '">'
-            + label + '</span><h3>' + escape(task["title"]) + '</h3></div>')
     estimate = task.get("estimated_minutes") or 0
     completed = task.get("completed_minutes") or 0
-    if estimate:
-        st.progress(min(1.0, completed / estimate),
-                    text=f"{_duration(completed)} completed · "
-                         f"{_duration(max(0, estimate - completed))} remaining")
-    else:
-        st.caption("Add an estimated study time to track progress.")
+    progress = (
+        f"{_duration(completed)} completed · {_duration(max(0, estimate - completed))} remaining"
+        if estimate else "Add an estimated study time to track progress."
+    )
+    st.html(
+        '<div class="sf-task-summary">'
+        f'<h3>{escape(task["title"])}</h3>'
+        '<div class="sf-task-summary-progress">'
+        f'<span class="sf-pill {style}">{label}</span>'
+        f'<span>{progress}</span></div></div>'
+    )
 
 
 def task_rows(tasks):
@@ -140,7 +146,7 @@ def task_rows(tasks):
             "Status": "Confirmed" if task.get("status") == "confirmed" else "Needs details",
             "Source message": task.get("mail_subject") or "Saved message",
             "Completed (min)": completed,
-            "Remaining (min)": max(0, estimate - completed) if estimate else None,
+            "Remaining (min)": 0 if _is_completed(task) else (max(0, estimate - completed) if estimate else None),
             "Progress": "Completed" if _is_completed(task) else "Unfinished",
         })
     return rows
@@ -172,7 +178,7 @@ def _editor_revision(task):
     return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def _render_editor(store, task):
+def _render_editor(store, task, editor_panel):
     revision = _editor_revision(task)
     prefix = f"task_edit_{task['id']}_{revision}"
     versions = st.session_state.setdefault("tasks_editor_versions", {})
@@ -181,22 +187,8 @@ def _render_editor(store, task):
         st.info("This task has changed. Its latest details and progress are shown below.")
     versions[task["id"]] = revision
 
-    st.write("**Task details**")
     st.caption("Confirmed requires a deadline and estimated study time greater than 0 minutes. "
                "You can save missing details and finish them later.")
-    effort = task.get("effort_review")
-    if effort:
-        with st.expander("Study-time estimate history"):
-            st.dataframe([{
-                "Source-stated minutes": effort.get("stated_minutes"),
-                "AI suggested minutes": effort.get("suggested_minutes"),
-                "Confirmed minutes": effort.get("confirmed_minutes"),
-                "Review decision": str(effort.get("decision", "")).replace("_", " "),
-            }], hide_index=True)
-            if effort.get("estimate_reason"):
-                st.text(effort["estimate_reason"])
-            for assumption in effort.get("assumptions", []):
-                st.text(assumption)
     with st.expander("Original supporting text", expanded=False):
         evidence = task.get("sources") or [task]
         for item in evidence:
@@ -255,9 +247,24 @@ def _render_editor(store, task):
                     "estimated_minutes": int(estimate) or None,
                     "completed_minutes": int(completed),
                 }
-                updated = store.update_task(
-                    task["id"], changes, expected_updated_at=task.get("updated_at"),
+                artwork = Path(__file__).resolve().parents[2] / "assets" / "tasks" / "saving-usagi.png"
+                image = b64encode(artwork.read_bytes()).decode("ascii")
+                loading = editor_panel.empty()
+                loading.html(
+                    '<div class="sf-inbox-loading sf-task-saving" role="status">'
+                    f'<img src="data:image/png;base64,{image}" alt="">'
+                    '<span class="sf-inbox-loading-label">'
+                    '<span class="sf-inbox-loading-mark" aria-hidden="true"></span>'
+                    'Saving changes…</span></div>'
                 )
+                try:
+                    updated = store.update_task(
+                        task["id"], changes, expected_updated_at=task.get("updated_at"),
+                    )
+                    # Local saves can finish before the browser paints the indicator.
+                    sleep(.45)
+                finally:
+                    loading.empty()
                 category = "Completed" if _is_completed(updated) else "Unfinished"
                 st.session_state.tasks_next_category = category
                 st.session_state.tasks_next_selection = task["id"]
@@ -273,7 +280,25 @@ def _render_editor(store, task):
             except (ValueError, KeyError) as exc:
                 st.error(str(exc))
 
+    estimate = task.get("estimated_minutes") or 0
+    if estimate:
+        st.progress(min(1.0, (task.get("completed_minutes") or 0) / estimate))
+    effort = task.get("effort_review")
+    if effort:
+        with st.expander("Study-time estimate history"):
+            st.dataframe([{
+                "Source-stated minutes": effort.get("stated_minutes"),
+                "AI suggested minutes": effort.get("suggested_minutes"),
+                "Confirmed minutes": effort.get("confirmed_minutes"),
+                "Review decision": str(effort.get("decision", "")).replace("_", " "),
+            }], hide_index=True)
+            if effort.get("estimate_reason"):
+                st.text(effort["estimate_reason"])
+            for assumption in effort.get("assumptions", []):
+                st.text(assumption)
 
+
+@st.fragment
 def _render_delete(store, task):
     prefix = f"task_delete_{task['id']}_{_editor_revision(task)}"
     with st.expander("Delete task"):
@@ -281,7 +306,8 @@ def _render_delete(store, task):
         st.caption("Remove this task from your task list, saved plan and upcoming daily reviews. "
                    "Saved attachments and previously recorded study time are kept.")
         confirmed = st.checkbox("I want to delete this task.", key=prefix + "_confirm")
-        if st.button("Delete task", key=prefix + "_button", disabled=not confirmed):
+        st.button("Delete task", key=prefix + "_stage", disabled=not confirmed)
+        if st.button("Dispose task", key=prefix + "_dispose", disabled=not confirmed) and confirmed:
             try:
                 store.delete_task(task["id"], expected_updated_at=task.get("updated_at"))
             except ValueError as exc:
@@ -299,9 +325,11 @@ def _render_delete(store, task):
 def render_tasks(store):
     """Render task categories and save edits against the original stable task ID."""
     tasks = store.tasks()
-    st.html('<div class="sf-eyebrow">YOUR WORK, IN FOCUS</div>')
-    st.title("Tasks")
-    st.caption("Keep the next step clear. Review details, track progress and make room to study.")
+    render_page_heading(
+        "YOUR WORK, IN FOCUS",
+        "Tasks",
+        "Keep the next step clear. Review details, track progress and make room to study.",
+    )
     notice = st.session_state.pop("tasks_notice", None)
     if notice:
         st.success(notice)
@@ -353,34 +381,43 @@ def render_tasks(store):
         next_selection = st.session_state.pop("tasks_next_selection", None)
         if next_selection in by_id:
             st.session_state[selection_key] = next_selection
-        elif by_id and st.session_state.get(selection_key) not in by_id:
-            st.session_state[selection_key] = next(iter(by_id))
-        st.caption(f"{len(selected_tasks)} of {len(category_tasks)} "
-                   f"{category.lower()} task(s)")
+        elif st.session_state.get(selection_key) not in by_id:
+            st.session_state[selection_key] = None
+        with st.container(key="sf_task_count"):
+            st.caption(f"{len(selected_tasks)} of {len(category_tasks)} "
+                       f"{category.lower()} task(s)")
         if selected_tasks:
             with st.container(height=430, border=False, key="sf_task_list"):
                 for task in selected_tasks:
                     _render_task_card(task, task["id"] == st.session_state.get(selection_key))
-            with st.expander("Full task table"):
-                st.dataframe(task_rows(selected_tasks), hide_index=True, width="stretch")
         elif category_tasks:
             st.info("No tasks match these filters. Try another search or status.")
         else:
             st.info("No completed tasks yet." if category == "Completed" else "No unfinished tasks.")
+    with browser, st.container(border=True, key="sf_panel_tasks_export"):
+        if selected_tasks:
+            with st.expander("Full task table"):
+                st.dataframe(task_rows(selected_tasks), hide_index=True, width="stretch")
         st.download_button("Download tasks", tasks_csv(tasks), "studentflow_tasks.csv", "text/csv",
                            icon=":material/download:", width="stretch")
-    with editor, st.container(border=True, key="sf_panel_tasks_editor"):
+    editor_panel = editor.container(border=True, key="sf_panel_tasks_editor")
+    with editor_panel:
+        st.subheader("Edit task")
+        task_id = None
         if by_id:
             # Use the full task list so filtering cannot renumber a selected task.
             labels = _task_choice_labels(tasks)
             task_id = st.selectbox(
                 "Edit task", list(by_id), key=selection_key,
-                format_func=labels.__getitem__,
+                index=None, placeholder="Select a task",
+                format_func=labels.__getitem__, label_visibility="collapsed",
             )
+        if task_id in by_id:
             _render_task_summary(by_id[task_id])
-            _render_editor(store, by_id[task_id])
+            _render_editor(store, by_id[task_id], editor_panel)
             _render_delete(store, by_id[task_id])
         else:
-            st.html('<div class="sf-empty-state">Choose a task from your list to review its '
-                    'details and progress.</div>')
+            st.html('<div class="sf-task-drop-zone">Drop a task here to edit it, '
+                    'or select one from the list above.</div>' if by_id else
+                    '<div class="sf-empty-state">No tasks are available in this view.</div>')
     st.session_state.pop("tasks_own_save", None)

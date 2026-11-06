@@ -1,0 +1,541 @@
+<script>
+(() => {
+  const bookSelector = '[class*="st-key-sf_cal_book_"]';
+  if (document.documentElement.dataset.sfCalendarGesture) return;
+  document.documentElement.dataset.sfCalendarGesture = 'true';
+  const options = { capture: true };
+  let drag;
+  let suppressClick = false;
+
+  function clearDrag() {
+    drag?.book.classList.remove('sf-cal-dragging');
+    drag?.book.style.removeProperty('--sf-cal-drag');
+    drag = undefined;
+  }
+
+  document.addEventListener('pointerdown', event => {
+    suppressClick = false;
+    const book = event.target.closest(bookSelector);
+    if (book && event.pointerType === 'mouse' && event.button === 0) {
+      drag = { book, x: event.clientX, y: event.clientY };
+    }
+  }, options);
+
+  document.addEventListener('pointermove', event => {
+    if (!drag) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+      drag.book.classList.add('sf-cal-dragging');
+      drag.book.style.setProperty('--sf-cal-drag', Math.max(-14, Math.min(14, dx / 5)) + 'px');
+      event.preventDefault();
+    }
+  }, options);
+
+  document.addEventListener('pointerup', event => {
+    if (!drag) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    suppressClick = Math.abs(dx) > 8 || Math.abs(dy) > 8;
+    clearDrag();
+    if (Math.abs(dx) < 45 || Math.abs(dx) <= Math.abs(dy) * 1.4) return;
+    const direction = dx < 0 ? 'next' : 'previous';
+    document.querySelector('.st-key-sf_cal_' + direction + ' button')?.click();
+  }, options);
+
+  document.addEventListener('click', event => {
+    if (suppressClick && event.detail && event.target.closest(bookSelector)) {
+      suppressClick = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, options);
+  document.addEventListener('pointercancel', clearDrag, options);
+  window.addEventListener('blur', clearDrag);
+
+  const desktop = matchMedia('(min-width: 1001px)');
+  const sidebar = '[data-testid="stSidebar"]';
+  let frame;
+  let observed = [];
+  let accountSize;
+  const sizes = new ResizeObserver(queueAlignment);
+  const seenCues = new WeakSet();
+  const cueVisibility = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      cueVisibility.unobserve(entry.target);
+      shuffleCue(entry.target);
+    }
+  }, { threshold: .1 });
+
+  function shuffleCue(link) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const letters = [...link.querySelectorAll('.sf-shuffle-cell > span')];
+    letters.forEach((letter, index) => {
+      letter.getAnimations().forEach(animation => animation.cancel());
+      const order = Math.floor(index / 2) + (index % 2) * Math.ceil(letters.length / 2);
+      letter.animate(
+        [{ transform: 'translateX(-100%)', opacity: .25 }, { transform: 'translateX(0)', opacity: 1 }],
+        { duration: 350, delay: order * 30, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'backwards' }
+      );
+    });
+  }
+
+  function queueAlignment() {
+    if (frame) return;
+    frame = requestAnimationFrame(alignOverview);
+  }
+
+  function alignOverview() {
+    frame = undefined;
+    const cue = document.querySelector('.sf-shortcut-cue');
+    const cueLink = cue?.querySelector('a');
+    if (cueLink && !seenCues.has(cueLink)) {
+      seenCues.add(cueLink);
+      cueVisibility.observe(cueLink);
+      cueLink.addEventListener('pointerenter', () => shuffleCue(cueLink));
+    }
+    const calendar = document.querySelector('.st-key-sf_panel_overview_calendar');
+    const row = calendar?.closest('[data-testid="stColumn"]')?.parentElement;
+    if (row) row.style.setProperty('--sf-cal-border', getComputedStyle(calendar).getPropertyValue('--sf-cal-border'));
+    const mailBrowser = document.querySelector('.st-key-sf_mail_browser');
+    const discussionSources = document.querySelector('.st-key-sf_panel_assistant_sources_sf_meeting_');
+    const discussionRow = discussionSources?.closest('[data-testid="stHorizontalBlock"]');
+    const mailRow = mailBrowser?.closest('[data-testid="stColumn"]')?.parentElement;
+    const stats = document.querySelector('.sf-overview-stats');
+    const heading = document.querySelector('[data-testid="stMain"] .sf-page-heading');
+    const title = heading?.querySelector('h1');
+    const description = heading?.querySelector('.sf-page-heading-description');
+    const brand = document.querySelector(sidebar + ' .sf-brand');
+    const progress = document.querySelector('.st-key-sf_overview_daily_progress');
+    const shortcuts = document.querySelector('.st-key-sf_shortcut_cards');
+    const firstShortcut = shortcuts?.querySelector('.st-key-sf_panel_overview_route_inbox');
+    const lastShortcut = shortcuts?.querySelector('.st-key-sf_panel_overview_route_discussions');
+    if (progress && firstShortcut && lastShortcut) {
+      // The white frames start 65 px from the corresponding edge of each 480 px illustration.
+      progress.style.setProperty('--sf-progress-inset-left', firstShortcut.offsetWidth * 65 / 480 + 'px');
+      progress.style.setProperty('--sf-progress-inset-right', lastShortcut.offsetWidth * 65 / 480 + 'px');
+    }
+    const gmail = document.querySelector(sidebar + ' .st-key-sf_gmail_connection details');
+    const toolbar = row?.querySelector('.st-key-sf_cal_today button');
+    const filters = row?.querySelector('.st-key-sf_overview_todo_filter');
+    const calendarTitle = row?.querySelector('.sf-cal-panel-title');
+    const todoTitle = row?.querySelector('.st-key-sf_panel_overview_todos h3');
+    const options = [...document.querySelectorAll(sidebar + ' [data-testid="stRadioOption"]')];
+    const overview = options.find(option => /\bOverview\b/.test(option.textContent));
+    const inbox = options.find(option => /\bInbox\b/.test(option.textContent));
+    const workspacePicker = document.querySelector('.st-key-sf_assistant_workspace');
+    const assistantDeck = document.querySelector('.st-key-sf_assistant_card_deck');
+    const tasksOption = options.find(option => /\bTasks\b/.test(option.textContent));
+    if (workspacePicker) {
+      const overviewBox = overview?.getBoundingClientRect();
+      if (desktop.matches && overviewBox?.width) {
+        const previous = parseFloat(workspacePicker.style.getPropertyValue('--sf-assistant-workspace-shift')) || 0;
+        const scroll = workspacePicker.closest('[data-testid="stMain"]')?.scrollTop || 0;
+        const baseline = workspacePicker.getBoundingClientRect().top + scroll - previous;
+        workspacePicker.style.setProperty('--sf-assistant-workspace-shift', (overviewBox.top - baseline) + 'px');
+      } else {
+        workspacePicker.style.removeProperty('--sf-assistant-workspace-shift');
+      }
+    }
+    if (assistantDeck) {
+      const tasksBox = tasksOption?.getBoundingClientRect();
+      const gmailBox = gmail?.getBoundingClientRect();
+      if (desktop.matches && tasksBox?.width && gmailBox?.width) {
+        const previous = parseFloat(assistantDeck.style.getPropertyValue('--sf-assistant-deck-shift')) || 0;
+        const scroll = assistantDeck.closest('[data-testid="stMain"]')?.scrollTop || 0;
+        const baseline = assistantDeck.getBoundingClientRect().top + scroll - previous;
+        const { noteCenter } = expandedAccountSize(gmail, gmailBox.width);
+        assistantDeck.style.setProperty('--sf-assistant-deck-shift', (tasksBox.top - baseline) + 'px');
+        assistantDeck.style.setProperty('--sf-assistant-deck-height',
+          Math.max(160, gmailBox.top + noteCenter - tasksBox.top) + 'px');
+      } else {
+        assistantDeck.style.removeProperty('--sf-assistant-deck-shift');
+        assistantDeck.style.removeProperty('--sf-assistant-deck-height');
+      }
+    }
+    if (discussionRow) {
+      const overviewBox = overview?.getBoundingClientRect();
+      const gmailBox = gmail?.getBoundingClientRect();
+      const controls = document.querySelector('.sf-discussion-controls');
+      if (desktop.matches && overviewBox?.width && gmailBox?.width) {
+        const previous = parseFloat(discussionRow.style.getPropertyValue('--sf-discussion-shift')) || 0;
+        const scroll = discussionRow.closest('[data-testid="stMain"]')?.scrollTop || 0;
+        const baseline = discussionRow.getBoundingClientRect().top + scroll - previous;
+        const expanded = expandedAccountSize(gmail, gmailBox.width);
+        const switchBottom = gmailBox.top + (expanded.switchBottom ?? expanded.height);
+        const gmailBottom = gmailBox.top + expanded.height;
+        discussionRow.style.setProperty('--sf-discussion-shift', (overviewBox.top - baseline) + 'px');
+        discussionRow.style.setProperty('--sf-discussion-height',
+          Math.max(160, switchBottom - overviewBox.top) + 'px');
+        if (controls?.getBoundingClientRect().width) {
+          const previousControls = parseFloat(controls.style.getPropertyValue('--sf-discussion-controls-shift')) || 0;
+          const controlsBottom = controls.getBoundingClientRect().bottom + scroll - previousControls;
+          controls.style.setProperty('--sf-discussion-controls-shift', Math.max(0, gmailBottom - controlsBottom) + 'px');
+        }
+      } else {
+        discussionRow.style.removeProperty('--sf-discussion-shift');
+        discussionRow.style.removeProperty('--sf-discussion-height');
+        controls?.style.removeProperty('--sf-discussion-controls-shift');
+      }
+    }
+    const planMetrics = document.querySelector('.st-key-sf_plan_metrics');
+    const attachmentSearch = document.querySelector('.st-key-sf_panel_attachments_search');
+    const attachmentPreview = document.querySelector('.st-key-sf_panel_attachments_preview');
+    const attachmentBrowser = document.querySelector('.st-key-sf_panel_attachments_browser');
+    const attachmentMetadata = attachmentPreview?.querySelector('.st-key-sf_attachment_metadata');
+    const attachmentReading = attachmentPreview?.querySelector('.st-key-sf_attachment_reading');
+    const assistantOption = options.find(option => /\bAssistant\b/.test(option.textContent));
+    const planTabs = document.querySelector('.st-key-sf_plan_tabs');
+    const studyTime = planTabs?.querySelector('.st-key-sf_panel_plan_availability');
+    const studyTimeHeader = studyTime?.querySelector('.sf-plan-builder-heading');
+    const studyRhythm = planTabs?.querySelector('.st-key-sf_panel_plan_preferences');
+    const planProgress = document.querySelector('.st-key-sf_plan_daily_progress');
+    const anchors = [stats, planMetrics, gmail?.querySelector('summary'), overview, inbox, toolbar, filters, calendarTitle, todoTitle, shortcuts, brand, title, description, studyTimeHeader, studyRhythm, planProgress, attachmentBrowser, attachmentMetadata, assistantOption].filter(Boolean);
+    if (attachmentSearch && attachmentPreview) {
+      const gmailBox = gmail?.getBoundingClientRect();
+      for (const panel of [attachmentSearch, attachmentPreview]) {
+        const box = panel.getBoundingClientRect();
+        const scroll = panel.closest('[data-testid="stMain"]')?.scrollTop || 0;
+        const height = desktop.matches && gmailBox?.width && box.width
+          ? gmailBox.top + expandedAccountSize(gmail, gmailBox.width).height
+            - box.top - scroll
+          : 0;
+        if (height >= 120) panel.style.setProperty('--sf-attachment-panel-height', height + 'px');
+        else panel.style.removeProperty('--sf-attachment-panel-height');
+      }
+    }
+    if (attachmentReading) {
+      const assistantBox = assistantOption?.getBoundingClientRect();
+      const divider = attachmentReading.querySelector('.sf-attachment-divider');
+      if (desktop.matches && assistantBox?.width && divider) {
+        const previous = parseFloat(attachmentReading.style.getPropertyValue('--sf-attachment-reading-inset')) || 0;
+        const baseline = divider.getBoundingClientRect().top + attachmentPreview.scrollTop
+          + (attachmentPreview.closest('[data-testid="stMain"]')?.scrollTop || 0) - previous;
+        attachmentReading.style.setProperty('--sf-attachment-reading-inset',
+          Math.max(0, assistantBox.top - baseline) + 'px');
+      } else {
+        attachmentReading.style.removeProperty('--sf-attachment-reading-inset');
+      }
+    }
+    const attachmentManage = attachmentPreview?.querySelector('.st-key-sf_attachment_manage');
+    const attachmentText = attachmentReading?.querySelector('.st-key-sf_attachment_text');
+    const searchButton = attachmentSearch?.querySelector('[data-testid="stFormSubmitButton"] button');
+    const manageSummary = attachmentManage?.querySelector('summary');
+    if (desktop.matches && searchButton?.offsetHeight && manageSummary?.offsetHeight) {
+      const searchBox = searchButton.getBoundingClientRect();
+      const manageBox = manageSummary.getBoundingClientRect();
+      const previousInset = parseFloat(attachmentManage.style.getPropertyValue('--sf-attachment-manage-inset')) || 0;
+      const offset = searchBox.top + searchBox.height / 2 - manageBox.top - manageBox.height / 2
+        + attachmentSearch.scrollTop - attachmentPreview.scrollTop + previousInset;
+      const textHeight = attachmentText?.offsetHeight || 0;
+      const naturalHeight = Math.min(360, attachmentText?.scrollHeight || 0);
+      const targetHeight = Math.min(naturalHeight, Math.max(64, textHeight + offset));
+      if (attachmentText) attachmentText.style.maxHeight = targetHeight + 'px';
+      attachmentManage.style.setProperty('--sf-attachment-manage-inset',
+        Math.max(0, offset + textHeight - targetHeight) + 'px');
+    } else {
+      attachmentText?.style.removeProperty('max-height');
+      attachmentManage?.style.removeProperty('--sf-attachment-manage-inset');
+    }
+    if (anchors.some((element, index) => element !== observed[index]) || anchors.length !== observed.length) {
+      sizes.disconnect();
+      anchors.forEach(element => sizes.observe(element));
+      observed = anchors;
+    }
+    if (mailRow) {
+      const overviewBox = overview?.getBoundingClientRect();
+      const gmailBox = gmail?.getBoundingClientRect();
+      if (desktop.matches && overviewBox?.width && gmailBox?.width) {
+        const previous = parseFloat(mailRow.style.getPropertyValue('--sf-inbox-shift')) || 0;
+        const scroll = mailRow.closest('[data-testid="stMain"]')?.scrollTop || 0;
+        const baseline = mailRow.getBoundingClientRect().top + scroll - previous;
+        const expanded = expandedAccountSize(gmail, gmailBox.width);
+        mailRow.style.setProperty('--sf-inbox-shift', (overviewBox.top - baseline) + 'px');
+        mailRow.style.setProperty('--sf-inbox-height',
+          Math.max(160, gmailBox.top + expanded.height - overviewBox.top) + 'px');
+      } else {
+        mailRow.style.removeProperty('--sf-inbox-shift');
+        mailRow.style.removeProperty('--sf-inbox-height');
+      }
+    }
+    const mailList = mailBrowser?.querySelector('.st-key-sf_mail_list');
+    const mailWorkspace = mailRow?.querySelector('.st-key-sf_mail_workspace');
+    const mailBody = mailWorkspace?.querySelector('.sf-mail-body');
+    const readingSpace = mailWorkspace?.querySelector('.sf-reading-space');
+    if (mailList && readingSpace && desktop.matches) {
+      const listViewport = mailBrowser.querySelector(':scope > [data-testid="stLayoutWrapper"]');
+      const listBottom = Math.min(
+        mailList.getBoundingClientRect().bottom,
+        (listViewport || mailBrowser).getBoundingClientRect().bottom
+      );
+      const height = listBottom - readingSpace.getBoundingClientRect().top;
+      readingSpace.style.setProperty('--sf-reading-space-height', Math.max(0, height) + 'px');
+    }
+    if (mailList && mailBody && desktop.matches) {
+      const reference = [...mailList.querySelectorAll('[class*="st-key-sf_mail_row_"]')]
+        .find(card => {
+          const subject = card.querySelector('[class*="st-key-sf_mail_open_"] button')?.textContent.trim();
+          return subject?.startsWith('你与') && subject.includes('Superhuman');
+        });
+      const listBottom = Math.min(mailList.getBoundingClientRect().bottom, mailBrowser.getBoundingClientRect().bottom);
+      const bodyTop = mailBody.getBoundingClientRect().top;
+      const referenceBottom = reference?.getBoundingClientRect().bottom;
+      const height = referenceBottom >= bodyTop + 96 && referenceBottom <= listBottom
+        ? referenceBottom - bodyTop : Math.min(300, listBottom - bodyTop);
+      mailBody.style.setProperty('--sf-mail-body-height', Math.max(96, height) + 'px');
+    }
+    const taskPanel = document.querySelector('.st-key-sf_panel_tasks_browser');
+    const taskRow = taskPanel?.closest('[data-testid="stHorizontalBlock"]');
+    if (taskRow && gmail && desktop.matches) {
+      const gmailBox = gmail.getBoundingClientRect();
+      const mainScroll = taskRow.closest('[data-testid="stMain"]')?.scrollTop || 0;
+      const rowTop = taskRow.getBoundingClientRect().top + mainScroll;
+      const expanded = expandedAccountSize(gmail, gmailBox.width);
+      const bottom = gmailBox.top + expanded.height;
+      taskRow.style.setProperty('--sf-task-panel-height', Math.max(160, bottom - rowTop) + 'px');
+      const approvalBottom = gmailBox.top + (expanded.approvalBottom ?? expanded.height);
+      taskRow.style.setProperty('--sf-task-list-height', Math.max(160, approvalBottom - rowTop) + 'px');
+      const exportPanel = taskRow.querySelector('.st-key-sf_panel_tasks_export');
+      if (exportPanel) {
+        const exportTop = exportPanel.getBoundingClientRect().top + mainScroll;
+        taskRow.style.setProperty('--sf-task-export-height', Math.max(0, bottom - exportTop) + 'px');
+      }
+
+      const editor = taskRow.querySelector('.st-key-sf_panel_tasks_editor');
+      const picker = editor?.querySelector('[class*="st-key-tasks_selected_"]');
+      const titleBlock = editor?.querySelector('.sf-task-summary')?.closest('[data-testid="stElementContainer"]');
+      const align = (block, source, target) => {
+        if (!block || !source || !target) return;
+        const previous = Number.parseFloat(block.style.marginTop) || 0;
+        const shift = target.getBoundingClientRect().top + taskPanel.scrollTop
+          - source.getBoundingClientRect().top - editor.scrollTop + previous;
+        block.style.marginTop = shift + 'px';
+      };
+      align(picker, picker?.querySelector('[role="group"]'),
+        taskPanel.querySelector('.st-key-tasks_category [role="radiogroup"]'));
+      const dropZone = editor?.querySelector('.sf-task-drop-zone');
+      const download = exportPanel?.querySelector('[data-testid="stDownloadButton"] button');
+      if (dropZone && download) {
+        const downloadBottom = Math.min(download.getBoundingClientRect().bottom, exportPanel.getBoundingClientRect().bottom);
+        dropZone.style.setProperty('--sf-task-drop-height',
+          Math.max(0, downloadBottom - dropZone.getBoundingClientRect().top) + 'px');
+      }
+      align(titleBlock, titleBlock?.querySelector('h3'),
+        taskPanel.querySelector('.st-key-sf_task_search [data-testid="stWidgetLabel"] p'));
+      const original = [...(editor?.querySelectorAll('summary') ?? [])]
+        .find(summary => summary.textContent.includes('Original supporting text'));
+      const originalBlock = original?.closest('[data-testid="stLayoutWrapper"], [data-testid="stElementContainer"]');
+      align(originalBlock, original,
+        taskPanel.querySelector('.st-key-sf_task_status [role="group"]'));
+      const form = editor?.querySelector('[data-testid="stForm"]');
+      const taskName = form?.querySelector('[data-testid="stTextInput"] [data-testid="stWidgetLabel"] p');
+      const taskCount = taskPanel.querySelector('.st-key-sf_task_count [data-testid="stCaptionContainer"] p');
+      if (taskName && taskCount && original) {
+        const previous = Number.parseFloat(form.style.getPropertyValue('--sf-task-form-offset')) || 0;
+        const nameTop = taskName.getBoundingClientRect().top;
+        const countTop = taskCount.getBoundingClientRect().top + taskPanel.scrollTop - editor.scrollTop;
+        const evidenceBottom = original.closest('details')?.getBoundingClientRect().bottom
+          ?? original.getBoundingClientRect().bottom;
+        const clearance = evidenceBottom + 4 - form.getBoundingClientRect().top;
+        form.style.setProperty('--sf-task-form-offset',
+          (previous + Math.max(countTop - nameTop, clearance)) + 'px');
+      }
+      const leftHeading = taskPanel.querySelector('h3');
+      const rightHeading = picker?.querySelector('[data-testid="stWidgetLabel"] p');
+      if (leftHeading && rightHeading?.getClientRects().length) {
+        const previous = Number.parseFloat(rightHeading.style.getPropertyValue('--sf-task-heading-shift')) || 0;
+        const textTop = element => {
+          const text = document.createRange();
+          text.selectNodeContents(element);
+          return text.getBoundingClientRect().top;
+        };
+        const shift = textTop(leftHeading) + taskPanel.scrollTop
+          - textTop(rightHeading) - editor.scrollTop + previous;
+        rightHeading.style.setProperty('--sf-task-heading-shift', shift + 'px');
+      }
+    }
+    if (planMetrics) {
+      const inboxBox = inbox?.getBoundingClientRect();
+      if (desktop.matches && inboxBox?.width) {
+        const scroll = planMetrics.closest('[data-testid="stMain"]')?.scrollTop || 0;
+        const previous = parseFloat(planMetrics.style.getPropertyValue('--sf-plan-metrics-shift')) || 0;
+        const bottom = planMetrics.getBoundingClientRect().bottom + scroll - previous;
+        planMetrics.style.setProperty('--sf-plan-metrics-shift', (inboxBox.bottom - bottom) + 'px');
+      } else {
+        planMetrics.style.removeProperty('--sf-plan-metrics-shift');
+      }
+    }
+    if (planTabs) {
+      const gmailBox = gmail?.getBoundingClientRect();
+      const list = planTabs.querySelector('[role="tablist"]');
+      const folder = planTabs.querySelector('.sf-plan-folder-toggle');
+      if (desktop.matches && gmailBox?.width && list && folder) {
+        const scroll = planTabs.closest('[data-testid="stMain"]')?.scrollTop || 0;
+        const stage = gmailBox.top - list.getBoundingClientRect().top - scroll;
+        planTabs.style.setProperty('--sf-folder-aligned-stage', stage + 'px');
+      } else {
+        planTabs.style.removeProperty('--sf-folder-aligned-stage');
+      }
+    }
+    if (studyTime) {
+      const gmailBox = gmail?.getBoundingClientRect();
+      const studyBox = studyTime.getBoundingClientRect();
+      const headerHeight = studyTimeHeader?.getBoundingClientRect().height || 0;
+      const scroll = studyTime.closest('[data-testid="stMain"]')?.scrollTop || 0;
+      const height = gmailBox?.width && studyBox.width && desktop.matches
+        ? gmailBox.top + expandedAccountSize(gmail, gmailBox.width).height
+          - studyBox.top - scroll
+        : 0;
+      if (height >= headerHeight + 72) {
+        studyTime.style.setProperty('--sf-study-time-height', height + 'px');
+      } else {
+        studyTime.style.removeProperty('--sf-study-time-height');
+      }
+    }
+    if (planProgress) {
+      const gmailBox = gmail?.getBoundingClientRect();
+      const progressBox = planProgress.getBoundingClientRect();
+      const scroll = planProgress.closest('[data-testid="stMain"]')?.scrollTop || 0;
+      const height = desktop.matches && gmailBox?.width && progressBox.width
+        ? gmailBox.top + expandedAccountSize(gmail, gmailBox.width).height
+          - progressBox.top - scroll
+        : 0;
+      if (height >= 96) {
+        planProgress.style.setProperty('--sf-plan-progress-height', height + 'px');
+      } else {
+        planProgress.style.removeProperty('--sf-plan-progress-height');
+      }
+    }
+    if (!row) return;
+    if (!desktop.matches || !stats || !gmail || !overview || !inbox || !inbox.getBoundingClientRect().width) {
+      progress?.style.removeProperty('--sf-progress-height');
+      stats?.style.removeProperty('--sf-stat-shift');
+      stats?.style.removeProperty('--sf-stat-height');
+      row.classList.remove('sf-overview-sidebar-aligned');
+      row.style.removeProperty('--sf-overview-row-shift');
+      row.style.removeProperty('--sf-overview-row-height');
+      sizeShortcutCue(cue);
+      return;
+    }
+    const previousShift = parseFloat(row.style.getPropertyValue('--sf-overview-row-shift')) || 0;
+    const scroll = row.closest('[data-testid="stMain"]')?.scrollTop || 0;
+    const statsShift = parseFloat(stats.style.getPropertyValue('--sf-stat-shift')) || 0;
+    const overviewBox = overview.getBoundingClientRect();
+    const inboxBox = inbox.getBoundingClientRect();
+    const headingBottom = heading ? heading.getBoundingClientRect().bottom + scroll : -Infinity;
+    const statsTop = Math.max(overviewBox.top, headingBottom + 12);
+    const statsBaseline = stats.getBoundingClientRect().top + scroll - statsShift;
+    stats.style.setProperty('--sf-stat-shift', (statsTop - statsBaseline) + 'px');
+    stats.style.setProperty('--sf-stat-height', overviewBox.height + 'px');
+    const baseline = row.getBoundingClientRect().top + scroll - previousShift;
+    const statsBottom = stats.getBoundingClientRect().bottom + scroll;
+    const top = Math.max((inboxBox.top + inboxBox.bottom) / 2, statsBottom + 12);
+    const gmailBox = gmail.getBoundingClientRect();
+    const expanded = expandedAccountSize(gmail, gmailBox.width);
+    const height = Math.max(300, gmailBox.top + expanded.height - top);
+    if (progress) {
+      const section = progress.closest('.st-key-sf_shortcut_section');
+      const main = section.closest('[data-testid="stMain"]');
+      // Align the panel when the shortcuts are snapped to the top of the main pane.
+      const offset = progress.getBoundingClientRect().top - section.getBoundingClientRect().top;
+      const snapTop = main.getBoundingClientRect().top + (parseFloat(getComputedStyle(main).scrollPaddingTop) || 0);
+      progress.style.setProperty('--sf-progress-height',
+        Math.max(160, gmailBox.top + expanded.height - snapTop - offset) + 'px');
+    }
+    row.style.setProperty('--sf-overview-row-shift', (top - baseline) + 'px');
+    row.style.setProperty('--sf-overview-row-height', height + 'px');
+    row.classList.add('sf-overview-sidebar-aligned');
+    if (calendarTitle && todoTitle) {
+      const previous = parseFloat(row.style.getPropertyValue('--sf-todo-title-shift')) || 0;
+      const calendarBox = calendarTitle.getBoundingClientRect();
+      const todoBox = todoTitle.getBoundingClientRect();
+      const offset = calendarBox.top + calendarBox.height / 2 - todoBox.top - todoBox.height / 2 + previous;
+      row.style.setProperty('--sf-todo-title-shift', offset + 'px');
+    }
+    if (toolbar && filters) {
+      const previous = parseFloat(row.style.getPropertyValue('--sf-todo-filter-shift')) || 0;
+      const offset = toolbar.getBoundingClientRect().bottom - filters.getBoundingClientRect().bottom + previous;
+      row.style.setProperty('--sf-todo-filter-shift', offset + 'px');
+    }
+    const contentBottom = gmailBox.top + expanded.noteCenter - scroll;
+    const month = row.querySelector('.st-key-sf_cal_layout')?.parentElement;
+    const week = row.querySelector('.sf-week-plan');
+    for (const [element, bottom] of [
+      [month, gmailBox.top - scroll], [week, contentBottom]
+    ]) {
+      if (element) element.style.setProperty('--sf-overview-content-height',
+        Math.max(0, bottom - element.getBoundingClientRect().top) + 'px');
+    }
+    sizeShortcutCue(cue);
+  }
+
+  function expandedAccountSize(details, width) {
+    const signature = width + details.textContent;
+    if (accountSize?.signature === signature) return accountSize;
+    // Measure an inert copy so opening or closing the visible account cannot resize workspace panels.
+    const copy = details.cloneNode(true);
+    copy.open = true;
+    copy.inert = true;
+    copy.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;width:' + width + 'px';
+    details.after(copy);
+    const box = copy.getBoundingClientRect();
+    const note = [...copy.querySelectorAll('[data-testid="stCaptionContainer"] p')]
+      .find(element => element.textContent.includes('keeps your saved'));
+    const noteBox = note?.getBoundingClientRect();
+    const approval = [...copy.querySelectorAll('[data-testid="stCaptionContainer"] p')]
+      .find(element => element.textContent.includes('separate approval.'));
+    let approvalBox = approval?.getBoundingClientRect();
+    const approvalText = approval?.firstChild;
+    const phrase = 'and labels require';
+    const phraseStart = approvalText?.textContent.indexOf(phrase) ?? -1;
+    if (approvalText?.nodeType === Node.TEXT_NODE && phraseStart >= 0) {
+      const range = document.createRange();
+      range.setStart(approvalText, phraseStart);
+      range.setEnd(approvalText, phraseStart + phrase.length);
+      approvalBox = range.getBoundingClientRect();
+    }
+    const emailBox = copy.querySelector('[data-testid="stText"]')?.getBoundingClientRect();
+    const switchBox = copy.querySelector('.st-key-sf_gmail_account_actions button')?.getBoundingClientRect();
+    accountSize = {
+      signature,
+      height: box.height,
+      emailBottom: emailBox ? emailBox.bottom - box.top : null,
+      switchBottom: switchBox ? switchBox.bottom - box.top : null,
+      switchCenter: switchBox ? switchBox.top + switchBox.height / 2 - box.top : null,
+      approvalBottom: approvalBox ? approvalBox.bottom - box.top : null,
+      noteCenter: noteBox ? noteBox.top + noteBox.height / 2 - box.top : box.height - 32
+    };
+    copy.remove();
+    return accountSize;
+  }
+
+  window.sfExpandedAccountSize = expandedAccountSize;
+
+  function sizeShortcutCue(cue) {
+    const main = cue?.closest('[data-testid="stMain"]');
+    if (!main) return;
+    const remaining = main.getBoundingClientRect().bottom - cue.getBoundingClientRect().top - main.scrollTop;
+    cue.style.setProperty('--sf-shortcut-cue-height', Math.max(0, remaining) + 'px');
+  }
+
+  document.addEventListener('click', event => {
+    if (!event.target.closest('.sf-shortcut-cue a')) return;
+    const section = document.querySelector('.st-key-sf_shortcut_section');
+    if (!section) return;
+    event.preventDefault();
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    section.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' });
+  });
+
+  new MutationObserver(queueAlignment).observe(document.body, { childList: true, subtree: true });
+  window.addEventListener('resize', queueAlignment);
+  document.addEventListener('scroll', event => {
+    if (event.target.closest?.('.st-key-sf_mail_browser, .st-key-sf_panel_tasks_export')) queueAlignment();
+  }, true);
+  document.addEventListener('toggle', event => {
+    if (!event.target.closest('.st-key-sf_gmail_connection')) queueAlignment();
+  }, true);
+  queueAlignment();
+})();
+</script>

@@ -1,0 +1,119 @@
+<script>
+(() => {
+  if (document.documentElement.dataset.sfAssistantTwoCardSwap) return;
+  document.documentElement.dataset.sfAssistantTwoCardSwap = 'true';
+
+  const names = ['sources', 'request'];
+  const deckSelector = '.st-key-sf_assistant_card_deck';
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let drag;
+  let suppressClick;
+  let front;
+  const resize = new ResizeObserver(entries => {
+    const card = entries[0].target;
+    card.closest(deckSelector)?.style.setProperty('--sf-assistant-front-height', card.offsetHeight + 'px');
+  });
+
+  function update(deck, selected) {
+    const cards = names.map(name =>
+      deck.querySelector('[class*="st-key-sf_panel_assistant_' + name + '_"]')
+    );
+    if (cards.some(card => !card)) return;
+    const wrappers = cards.map(card => card.closest('[data-testid="stLayoutWrapper"]'));
+    if (wrappers.some(wrapper => !wrapper || !deck.contains(wrapper))) return;
+
+    const mode = [...cards[0].classList].find(name => name.startsWith('st-key-sf_panel_assistant_sources_'));
+    const active = selected || (deck.dataset.cardMode === mode ? deck.dataset.activeCard : 'sources');
+    deck.dataset.cardMode = mode;
+    deck.dataset.activeCard = active;
+    wrappers.forEach((wrapper, index) => {
+      const isFront = names[index] === active;
+      wrapper.dataset.assistantDepth = isFront ? '0' : '1';
+      wrapper.dataset.assistantPanel = names[index];
+      cards[index].inert = !isFront;
+    });
+    const nextFront = wrappers[names.indexOf(active)];
+    if (front !== nextFront) {
+      resize.disconnect();
+      resize.observe(nextFront);
+      front = nextFront;
+    }
+  }
+
+  document.addEventListener('click', event => {
+    if (suppressClick?.contains(event.target)) {
+      suppressClick = undefined;
+      return;
+    }
+    const deck = event.target.closest(deckSelector);
+    const control = event.target.closest('[data-assistant-card]');
+    const backCard = event.target.closest('[data-assistant-depth="1"]');
+    const selected = control?.dataset.assistantCard || backCard?.dataset.assistantPanel;
+    if (!deck || !selected) return;
+    update(deck, selected);
+    if (control) front?.querySelector('[data-assistant-card]')?.focus({ preventScroll: true });
+  });
+
+  document.addEventListener('pointerdown', event => {
+    suppressClick = undefined;
+    const card = event.target.closest('[data-assistant-depth="0"]');
+    if (!card || !event.isPrimary || event.button !== 0 || drag) return;
+    if (event.target.closest('button, input, textarea, select, a, label, summary, [contenteditable], [role="combobox"], [role="listbox"], [role="slider"]')) return;
+    drag = { card, id: event.pointerId, x: event.clientX, y: event.clientY, offset: 0 };
+  });
+
+  document.addEventListener('pointermove', event => {
+    if (!drag || drag.id !== event.pointerId) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.card.hasAttribute('data-dragging')) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
+        drag = undefined;
+        return;
+      }
+      if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy)) return;
+      drag.card.setPointerCapture(event.pointerId);
+      drag.card.setAttribute('data-dragging', '');
+    }
+    drag.offset = dx;
+    if (event.cancelable) event.preventDefault();
+    if (!reducedMotion.matches) {
+      drag.card.style.setProperty('--sf-card-drag', dx + 'px');
+      drag.card.style.setProperty('--sf-card-tilt', Math.max(-9, Math.min(9, dx / 18)) + 'deg');
+    }
+  }, { passive: false });
+
+  function release(event) {
+    if (!drag || drag.id !== event.pointerId) return;
+    const { card, offset } = drag;
+    drag = undefined;
+    card.removeAttribute('data-dragging');
+    card.style.removeProperty('--sf-card-drag');
+    card.style.removeProperty('--sf-card-tilt');
+    if (event.type !== 'pointerup' || Math.abs(offset) < 65 || !card.isConnected) return;
+    suppressClick = card;
+    const deck = card.closest(deckSelector);
+    const next = deck.dataset.activeCard === 'sources' ? 'request' : 'sources';
+    update(deck, next);
+    if (!reducedMotion.matches) {
+      front?.animate(
+        [{ transform: 'translateX(' + (offset > 0 ? -45 : 45) + 'px) scale(.98)' }, { transform: 'none' }],
+        { duration: 380, easing: 'cubic-bezier(.2,.75,.3,1)' }
+      );
+    }
+  }
+  document.addEventListener('pointerup', release);
+  document.addEventListener('pointercancel', release);
+
+  function sync() {
+    const deck = document.querySelector(deckSelector);
+    if (deck) update(deck);
+    else if (front) {
+      resize.disconnect();
+      front = undefined;
+    }
+  }
+  new MutationObserver(sync).observe(document.body, { childList: true, subtree: true });
+  sync();
+})();
+</script>

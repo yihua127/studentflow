@@ -1,0 +1,128 @@
+<script>
+(() => {
+  if (window.sfSettingsCarousel) return;
+  window.sfSettingsCarousel = true;
+
+  const names = ['AI settings', 'Connection check', 'Setup & account'];
+  const keys = ['configuration', 'connection', 'help'];
+  const desktop = matchMedia('(min-width: 1001px)');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  let active = 0;
+  let pending = 0;
+
+  function update(next = active, animate = false) {
+    const panels = keys.map(key => document.querySelector('.st-key-sf_panel_settings_' + key));
+    if (panels.some(panel => !panel)) {
+      active = 0;
+      return;
+    }
+    const columns = panels.map(panel => panel.closest('[data-testid="stColumn"]'));
+    const row = columns[0]?.closest('[data-testid="stHorizontalBlock"]');
+    if (!row || columns.some(column => !column || column.closest('[data-testid="stHorizontalBlock"]') !== row)) return;
+    row.classList.add('sf-settings-carousel');
+    const controls = document.querySelector('.sf-settings-carousel-controls');
+    if (controls) {
+      controls.hidden = false;
+      const label = controls.querySelector('output');
+      if (label.textContent !== names[next]) label.textContent = names[next];
+    }
+    const inbox = [...document.querySelectorAll('.st-key-sf_app_tab [data-testid="stRadioOption"]')]
+      .find(item => /\bInbox\b/.test(item.textContent));
+    const main = row.closest('[data-testid="stMain"]');
+    if (desktop.matches && inbox?.offsetHeight) {
+      const previous = parseFloat(row.style.getPropertyValue('--sf-settings-shift')) || 0;
+      const baseline = row.getBoundingClientRect().top + (main?.scrollTop || 0) - previous;
+      row.style.setProperty('--sf-settings-shift', (inbox.getBoundingClientRect().top - baseline) + 'px');
+    } else {
+      row.style.removeProperty('--sf-settings-shift');
+    }
+
+    const account = document.querySelector('.st-key-sf_gmail_connection details');
+    const accountBox = account?.getBoundingClientRect();
+    const expanded = desktop.matches && accountBox?.width
+      ? window.sfExpandedAccountSize?.(account, accountBox.width)
+      : null;
+    const scroll = main?.scrollTop || 0;
+
+    if (expanded?.emailBottom != null && inbox?.offsetHeight) {
+      const frameHeight = accountBox.top + expanded.emailBottom - inbox.getBoundingClientRect().top;
+      row.style.setProperty('--sf-settings-frame-height', Math.max(150, frameHeight) + 'px');
+    } else {
+      row.style.removeProperty('--sf-settings-frame-height');
+    }
+    if (controls && expanded?.switchCenter != null) {
+      const previous = parseFloat(controls.style.getPropertyValue('--sf-settings-controls-shift'))
+        || parseFloat(getComputedStyle(controls).top) || 0;
+      const naturalCenter = controls.getBoundingClientRect().top + controls.offsetHeight / 2 + scroll - previous;
+      controls.style.setProperty('--sf-settings-controls-shift', (accountBox.top + expanded.switchCenter - naturalCenter) + 'px');
+    } else {
+      controls?.style.removeProperty('--sf-settings-controls-shift');
+    }
+
+    const before = animate ? columns.map(column => column.getBoundingClientRect().left) : [];
+    active = next;
+    columns.forEach((column, index) => {
+      const position = (index - active + 4) % 3;
+      column.style.order = desktop.matches ? position : '';
+      const side = desktop.matches && index !== active;
+      column.classList.toggle('sf-settings-side', side);
+      column.classList.toggle('sf-settings-current', index === active);
+      column.classList.toggle('sf-settings-side-right', side && position === 2);
+      panels[index].inert = index !== active;
+      let opener = column.querySelector(':scope > .sf-settings-open-card');
+      if (side && !opener) {
+        opener = document.createElement('button');
+        opener.type = 'button';
+        opener.className = 'sf-settings-open-card';
+        opener.setAttribute('aria-label', 'Open ' + names[index]);
+        opener.addEventListener('click', () => {
+          update(index, true);
+          const heading = panels[index].querySelector('h3');
+          if (heading) {
+            heading.tabIndex = -1;
+            heading.focus({preventScroll: true});
+          }
+        });
+        column.append(opener);
+      } else if (!side) {
+        opener?.remove();
+      }
+    });
+    if (animate && !reduced.matches) {
+      if (!desktop.matches) {
+        columns[active].animate([
+          {transform: 'rotateY(-48deg) translateX(12%)', opacity: .45},
+          {transform: 'none', opacity: 1}
+        ], {duration: 520, easing: 'ease-out'});
+        return;
+      }
+      columns.forEach((column, index) => {
+        const distance = before[index] - column.getBoundingClientRect().left;
+        column.animate([
+          {transform: 'translateX(' + distance + 'px)'},
+          {transform: 'translateX(' + distance * .5 + 'px) rotateY(' + (distance < 0 ? -45 : 45) + 'deg) translateZ(-60px)', offset: .5},
+          {transform: 'none'}
+        ], {duration: 620, easing: 'cubic-bezier(.22,.72,.25,1)'});
+      });
+    }
+  }
+
+  function schedule() {
+    if (pending) return;
+    pending = requestAnimationFrame(() => {
+      pending = 0;
+      update();
+    });
+  }
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest('.sf-settings-carousel-controls button');
+    if (button) update((active + Number(button.dataset.step) + keys.length) % keys.length, true);
+  });
+
+  new MutationObserver(schedule).observe(document.body, {childList: true, subtree: true});
+  window.addEventListener('resize', schedule);
+  document.fonts.ready.then(schedule);
+  schedule();
+})();
+</script>

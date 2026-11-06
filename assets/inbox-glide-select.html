@@ -1,0 +1,43 @@
+<script>
+(() => {
+  if (document.documentElement.dataset.sfInboxGlideSelect) return;
+  document.documentElement.dataset.sfInboxGlideSelect = 'true';
+
+  function openMenu() {
+    const input = document.querySelector('.st-key-sf_mail_filter input[role="combobox"][aria-expanded="true"]');
+    const list = input && document.getElementById(input.getAttribute('aria-controls'));
+    const popup = list?.closest('[data-testid="stSelectboxVirtualDropdown"]');
+    return popup && { input, list, popup };
+  }
+
+  function glide(popup, row) {
+    const bounds = row.getBoundingClientRect();
+    popup.style.setProperty('--sf-glide-y', (bounds.top - popup.getBoundingClientRect().top - popup.clientTop) + 'px');
+    popup.style.setProperty('--sf-glide-height', bounds.height + 'px');
+  }
+
+  function sync() {
+    const menu = openMenu();
+    if (!menu) return;
+    const { input, list, popup } = menu;
+    popup.classList.add('sf-inbox-glide-menu');
+    const row = document.getElementById(input.getAttribute('aria-activedescendant'))
+      || list.querySelector('[role="option"][aria-selected="true"]');
+    if (row && list.contains(row)) glide(popup, row);
+  }
+
+  document.addEventListener('pointermove', event => {
+    const row = event.target.closest('[role="option"]');
+    const popup = row?.closest('.sf-inbox-glide-menu');
+    if (popup) glide(popup, row);
+  });
+  document.addEventListener('scroll', event => {
+    if (event.target.closest?.('.sf-inbox-glide-menu')) sync();
+  }, true);
+  new MutationObserver(sync).observe(document.body, {
+    subtree: true, childList: true, attributes: true,
+    attributeFilter: ['aria-expanded', 'aria-controls', 'aria-activedescendant']
+  });
+  sync();
+})();
+</script>

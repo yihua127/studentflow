@@ -1,0 +1,28 @@
+<script>
+(() => {
+  if (document.documentElement.dataset.sfTaskDownload) return;
+  document.documentElement.dataset.sfTaskDownload = 'true';
+
+  let notice;
+  let timer;
+  document.addEventListener('click', event => {
+    const panels = ':is(.st-key-sf_panel_tasks_export, .st-key-sf_panel_attachments_preview)';
+    const button = event.target.closest(panels + ' [data-testid="stDownloadButton"] button:enabled');
+    const template = document.getElementById('sf-task-download-template');
+    if (!button || !template) return;
+    const panel = button.closest(panels);
+    const bounds = panel.getBoundingClientRect();
+    clearTimeout(timer);
+    notice?.remove();
+    notice = template.content.firstElementChild.cloneNode(true);
+    Object.assign(notice.style, {
+      top: bounds.top + 'px',
+      left: bounds.left + 'px',
+      width: bounds.width + 'px',
+      height: bounds.height + 'px'
+    });
+    document.body.append(notice);
+    timer = setTimeout(() => notice.remove(), 900);
+  }, true);
+})();
+</script>

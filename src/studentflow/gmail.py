@@ -12,6 +12,7 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -137,6 +138,7 @@ def _save_token(path: Path, credentials: Any) -> None:
 
 def connect(
     credentials_path: Path, token_path: Path, interactive: bool = False,
+    *, show_login_link: Callable[[str], None] | None = None,
 ) -> GmailMailbox:
     """Connect using existing consent, or open Google login only if explicitly requested."""
     config = _client_config(Path(credentials_path))
@@ -182,12 +184,24 @@ def connect(
             _save_token(token_path, credentials)
     else:
         try:
-            flow = InstalledAppFlow.from_client_config(config, SCOPES)
+            flow_type = InstalledAppFlow
+            browser_options = {}
+            if show_login_link is not None:
+                class LinkedLoginFlow(InstalledAppFlow):
+                    def authorization_url(self, **kwargs):
+                        url, state = super().authorization_url(**kwargs)
+                        show_login_link(url)
+                        return url, state
+
+                flow_type = LinkedLoginFlow
+                browser_options["open_browser"] = False
+            flow = flow_type.from_client_config(config, SCOPES)
             credentials = flow.run_local_server(
                 host="127.0.0.1", port=0, timeout_seconds=180,
                 prompt="select_account consent", access_type="offline",
                 authorization_prompt_message="Complete Google sign-in in your browser.",
                 success_message="Gmail is connected. You can return to StudentFlow.",
+                **browser_options,
             )
         except Exception:  # noqa: BLE001 - Do not surface OAuth callback or token details.
             raise GmailError("Google sign-in did not finish. Check your connection and test-user access, then try again.") from None

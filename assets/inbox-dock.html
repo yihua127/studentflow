@@ -1,0 +1,39 @@
+<script>
+(() => {
+  if (document.documentElement.dataset.sfInboxDock) return;
+  document.documentElement.dataset.sfInboxDock = 'true';
+  const motion = matchMedia('(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)');
+  const items = [
+    '.st-key-sf_inbox_workflow [data-testid="stRadioOption"]',
+    '.st-key-sf_mail_all button:enabled', '.st-key-sf_mail_clear button:enabled'
+  ].join(', ');
+  let active = [];
+
+  function clear() {
+    active.forEach(item => item.style.removeProperty('--sf-dock-scale'));
+    active = [];
+  }
+
+  document.addEventListener('pointermove', event => {
+    const item = motion.matches && event.pointerType === 'mouse' && event.target.closest(items);
+    const row = item && item.closest('[role="radiogroup"], [data-testid="stHorizontalBlock"]');
+    if (!row) {
+      clear();
+      return;
+    }
+    const next = [...row.querySelectorAll(items)];
+    active.filter(control => !next.includes(control))
+      .forEach(control => control.style.removeProperty('--sf-dock-scale'));
+    active = next;
+    for (const control of active) {
+      const rect = control.getBoundingClientRect();
+      const distance = Math.abs(event.clientX - (rect.left + rect.width / 2));
+      const proximity = Math.max(0, 1 - distance / 180);
+      control.style.setProperty('--sf-dock-scale', (1 + .09 * proximity ** 2).toFixed(3));
+    }
+  });
+  document.documentElement.addEventListener('pointerleave', clear);
+  window.addEventListener('blur', clear);
+  motion.addEventListener('change', clear);
+})();
+</script>

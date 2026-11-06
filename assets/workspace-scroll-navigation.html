@@ -1,0 +1,149 @@
+<script>
+(() => {
+  if (window.sfWorkspaceScrollNavigation) return;
+  window.sfWorkspaceScrollNavigation = true;
+
+  const mainSelector = '[data-testid="stMain"]';
+  const navigationSelector = '.st-key-sf_app_tab [role="radiogroup"]';
+  const idleGap = 240;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let distance = 0;
+  let direction = 0;
+  let switching = false;
+  let lastWheel = -Infinity;
+  let waitingForIdle = false;
+  let touchStart;
+
+  function scrollArea(target) {
+    const main = target.closest?.(mainSelector);
+    if (!main || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], :popover-open')) {
+      return null;
+    }
+    for (let element = target; element && element !== main; element = element.parentElement) {
+      if (element.scrollHeight > element.clientHeight + 2
+          && /^(auto|scroll)$/.test(getComputedStyle(element).overflowY)) return null;
+    }
+    return /^(auto|scroll)$/.test(getComputedStyle(main).overflowY)
+      ? main
+      : document.scrollingElement;
+  }
+
+  function atEdge(area, step) {
+    if (!area) return false;
+    return step > 0
+      ? area.scrollHeight - area.clientHeight - area.scrollTop <= 3
+      : area.scrollTop <= 3;
+  }
+
+  function renderedPage() {
+    return document.querySelector('#sf-workspace-page')?.dataset.page;
+  }
+
+  function waitForPageChange(previous) {
+    return new Promise(resolve => {
+      function finish(changed) {
+        observer.disconnect();
+        clearTimeout(timeout);
+        resolve(changed);
+      }
+      const observer = new MutationObserver(() => {
+        const page = renderedPage();
+        if (page && page !== previous) finish(true);
+      });
+      const timeout = setTimeout(() => finish(false), 1800);
+      observer.observe(document.body, {childList: true, subtree: true, attributes: true,
+        attributeFilter: ['data-page']});
+    });
+  }
+
+  async function slidePaper(area, current, next, step) {
+    if (!current.checked || !next.isConnected || next.disabled) return;
+    switching = true;
+    const root = document.documentElement;
+    async function showNextPage() {
+      const loaded = waitForPageChange(renderedPage());
+      next.click();
+      if (await loaded) {
+        area.scrollTo({top: 0, behavior: 'instant'});
+        // Let the layout alignment observer measure the new page at scroll top.
+        await new Promise(resolve => setTimeout(resolve, 32));
+      }
+    }
+
+    try {
+      if (reducedMotion.matches || !document.startViewTransition) {
+        await showNextPage();
+        return;
+      }
+      root.dataset.sfPaperTurn = step > 0 ? 'forward' : 'back';
+      const transition = document.startViewTransition(showNextPage);
+      await transition.finished;
+    } finally {
+      delete root.dataset.sfPaperTurn;
+      switching = false;
+    }
+  }
+
+  function advance(area, step) {
+    if (switching) return false;
+    const options = [...document.querySelectorAll(navigationSelector + ' input[type="radio"]')];
+    const index = options.findIndex(option => option.checked);
+    const next = index < 0 ? null : options[index + step];
+    if (!next || next.disabled) return false;
+    slidePaper(area, options[index], next, step).catch(() => {});
+    return true;
+  }
+
+  document.addEventListener('wheel', event => {
+    const now = performance.now();
+    if (now - lastWheel > idleGap) {
+      waitingForIdle = false;
+      distance = 0;
+    }
+    lastWheel = now;
+    if (switching || waitingForIdle || event.defaultPrevented || event.ctrlKey || event.shiftKey) return;
+
+    const area = scrollArea(event.target);
+    const step = Math.sign(event.deltaY);
+    if (!step || Math.abs(event.deltaX) >= Math.abs(event.deltaY) || !atEdge(area, step)) {
+      distance = 0;
+      return;
+    }
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? area.clientHeight : 1;
+    if (direction !== step) distance = 0;
+    direction = step;
+    distance += Math.min(100, Math.abs(event.deltaY) * unit);
+    if (distance >= 145 && advance(area, step)) {
+      event.preventDefault();
+      distance = 0;
+      waitingForIdle = true;
+    }
+  }, {passive: false});
+
+  document.addEventListener('touchstart', event => {
+    touchStart = null;
+    if (event.touches.length !== 1) return;
+    const area = scrollArea(event.target);
+    if (!switching && (atEdge(area, 1) || atEdge(area, -1))) {
+      const {clientX, clientY} = event.touches[0];
+      touchStart = {area, clientX, clientY, top: atEdge(area, -1), bottom: atEdge(area, 1)};
+    }
+  }, {passive: true});
+
+  document.addEventListener('touchend', event => {
+    if (!touchStart) return;
+    const {area, clientX, clientY, top, bottom} = touchStart;
+    touchStart = null;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    const upward = clientY - touch.clientY;
+    const step = Math.sign(upward);
+    if ((step > 0 ? bottom : top) && atEdge(area, step)
+        && Math.abs(upward) >= 100 && Math.abs(upward) > Math.abs(clientX - touch.clientX) * 1.5) {
+      advance(area, step);
+    }
+  }, {passive: true});
+
+  document.addEventListener('touchcancel', () => { touchStart = null; }, {passive: true});
+})();
+</script>

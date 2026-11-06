@@ -10,7 +10,17 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from studentflow.effort_review import build_effort_review, validate_effort_review
+from studentflow.planner import is_completed
 from studentflow.task_dedup import legacy_source_ids, merge_sources, same_task
+
+
+DEADLINE_COLORS = {
+    "blue": "#8e9ed8",
+    "pink": "#d986ab",
+    "purple": "#a483ca",
+    "orange": "#d99a5f",
+    "green": "#71a88a",
+}
 
 
 class Store:
@@ -38,7 +48,7 @@ class Store:
             completed = 0
         result["completed_minutes"] = completed
         result["remaining_minutes"] = max(0, estimate - completed) if known else None
-        result["is_completed"] = bool(known and completed >= estimate)
+        result["is_completed"] = is_completed(result)
         return result
 
     def save_task(self, task: dict) -> str:
@@ -217,6 +227,33 @@ class Store:
             records = [self._task(json.loads(row[0]))
                        for row in db.execute("SELECT payload FROM tasks ORDER BY rowid")]
             return [dict(record, sources=self._evidence(record, db)) for record in records]
+
+    def set_deadline_color(self, task_id: str, color: str) -> None:
+        """Update only the calendar marker, independently of task details."""
+        if color not in DEADLINE_COLORS:
+            raise ValueError("Choose one of the available colors.")
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE tasks SET payload=json_set(payload, '$.deadline_color', ?) WHERE id=?",
+                (color, task_id),
+            )
+            if not cursor.rowcount:
+                raise ValueError("This task is no longer available.")
+
+    def set_task_completion(self, task_id: str, complete: bool, *, expected_updated_at=None) -> dict:
+        """Check off a task without modifying its logged study time."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT payload FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None:
+                raise ValueError("This task is no longer available.")
+            record = json.loads(row[0])
+            if record.get("updated_at") != expected_updated_at:
+                raise ValueError("This task changed in another view. Try again with the latest details.")
+            record.update(marked_complete=complete, updated_at=datetime.now(UTC).isoformat())
+            record = self._task(record)
+            db.execute("UPDATE tasks SET payload=? WHERE id=?", (json.dumps(record, ensure_ascii=False), task_id))
+        return record
 
     def update_task(self, task_id: str, changes: dict, *, expected_updated_at=None) -> dict:
         """Edit a saved task by ID, with optimistic concurrency and preserved evidence."""

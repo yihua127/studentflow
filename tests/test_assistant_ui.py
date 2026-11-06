@@ -460,7 +460,7 @@ def test_google_reads_are_explicit_and_disconnecting_clears_loaded_sources(setup
                      "account": "student@example.invalid", "title": "Project discussion",
                      "text": "We agreed to submit the report on Friday."}]
 
-    def connect(client_path, token_path, interactive=False):
+    def connect(client_path, token_path, interactive=False, *, show_login_link=None):
         calls.append(("connect", interactive))
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text("{}", encoding="utf-8")
@@ -505,7 +505,7 @@ def test_invalid_previous_google_consent_falls_back_to_sign_in(setup_ui, monkeyp
     def reject_import(*args, **kwargs):
         raise workspace_ui.GoogleWorkspaceAuthError("The previous authorization is invalid.")
 
-    def connect(client_path, token_path, interactive=False):
+    def connect(client_path, token_path, interactive=False, *, show_login_link=None):
         calls.append(interactive)
         if not interactive:
             raise workspace_ui.GoogleWorkspaceAuthError("Not connected.")
@@ -544,7 +544,7 @@ def test_calendar_scope_changes_and_account_switch_clear_cached_information(setu
         def list_events(self, *args):
             return []
 
-    def connect(client_path, token_path, interactive=False):
+    def connect(client_path, token_path, interactive=False, *, show_login_link=None):
         if interactive:
             account["email"] = "second@example.invalid"
         token_path.parent.mkdir(parents=True, exist_ok=True)

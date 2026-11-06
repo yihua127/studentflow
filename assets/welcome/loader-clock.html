@@ -1,0 +1,14 @@
+<script>
+(() => {
+  const timer = document.querySelector('.sf-gmail-loader[data-status="working"] .sf-lattice-time');
+  if (!timer) return;
+  const started = performance.now();
+  const interval = setInterval(() => {
+    if (!timer.isConnected) {
+      clearInterval(interval);
+      return;
+    }
+    timer.textContent = ((performance.now() - started) / 1000).toFixed(1) + "s";
+  }, 100);
+})();
+</script>

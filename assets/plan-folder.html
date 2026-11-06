@@ -1,0 +1,66 @@
+<script>
+(() => {
+  if (document.documentElement.dataset.sfPlanFolder) return;
+  document.documentElement.dataset.sfPlanFolder = 'true';
+
+  function mountFolder() {
+    const tabs = document.querySelector('.st-key-sf_plan_tabs');
+    const list = tabs?.querySelector('[role="tablist"]');
+    if (!list || list.previousElementSibling?.matches('.sf-plan-folder-toggle')) return;
+
+    const folder = document.createElement('button');
+    folder.type = 'button';
+    folder.className = 'sf-plan-folder-toggle';
+    folder.disabled = true;
+    folder.style.visibility = 'hidden';
+    list.before(folder);
+
+    function setOpen(open) {
+      tabs.toggleAttribute('data-folder-open', open);
+      folder.setAttribute('aria-expanded', String(open));
+      folder.setAttribute('aria-label', open ? 'Close study plan folder' : 'Open study plan folder');
+      list.inert = !open;
+      if (!open) tabs.removeAttribute('data-paper-selected');
+    }
+
+    setOpen(false);
+    // Wait for the sidebar alignment before measuring the flight.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!folder.isConnected) return;
+      folder.style.visibility = '';
+      const openOnArrival = () => {
+        if (!folder.isConnected) return;
+        folder.disabled = false;
+        setOpen(true);
+      };
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        openOnArrival();
+        return;
+      }
+      const distance = Math.max(0, window.innerHeight - folder.getBoundingClientRect().top);
+      const flight = folder.animate([
+        { translate: `0 ${distance}px` },
+        { translate: '0 0' },
+      ], { duration: 650, easing: 'cubic-bezier(.2,.75,.25,1)' });
+      flight.onfinish = openOnArrival;
+    }));
+    folder.addEventListener('click', () => {
+      const open = !tabs.hasAttribute('data-folder-open');
+      setOpen(open);
+      if (open) list.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
+    });
+  }
+
+  function revealPaper(event) {
+    const paper = event.target.closest('.st-key-sf_plan_tabs[data-folder-open] [role="tab"]');
+    paper?.closest('.st-key-sf_plan_tabs').setAttribute('data-paper-selected', '');
+  }
+  document.addEventListener('click', revealPaper, true);
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') revealPaper(event);
+  }, true);
+
+  new MutationObserver(mountFolder).observe(document.body, { childList: true, subtree: true });
+  mountFolder();
+})();
+</script>

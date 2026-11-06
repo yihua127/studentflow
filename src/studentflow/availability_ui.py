@@ -36,8 +36,6 @@ def _period_label(entry: dict) -> str:
 
 
 def render_availability(preferences: dict, path: Path, save: Save, now: datetime) -> None:
-    st.markdown("**Available study time**")
-    st.caption("Set your usual week once, then adjust individual dates when plans change.")
     rules = preferences["weekly_availability"]
     if rules:
         st.dataframe(
@@ -52,7 +50,7 @@ def render_availability(preferences: dict, path: Path, save: Save, now: datetime
             hide_index=True,
             width="stretch",
         )
-    with st.expander("Add weekly availability", expanded=not rules), st.form("sf_plan_weekly_add"):
+    with st.expander("Add weekly availability"), st.form("sf_plan_weekly_add"):
         days = st.multiselect("Weekdays", options=list(WEEKDAYS), key="sf_plan_weekdays")
         left, right = st.columns(2)
         start = left.time_input("Start", value=time(9), key="sf_plan_weekly_start")
@@ -132,7 +130,7 @@ def render_availability(preferences: dict, path: Path, save: Save, now: datetime
                 ]
                 save(path, updated, "Selected weekly rules removed.")
 
-    with st.expander("Change a particular day", expanded=not rules):
+    with st.expander("Change a particular day"):
         st.caption(
             "Add extra hours, remove part of a day, or take the whole day off. Removed hours override all additions until you remove that dated change."
         )

@@ -1,0 +1,30 @@
+<script>
+(() => {
+  const listSelector = '.st-key-sf_app_tab [role="radiogroup"]';
+  const rowSelector = '[data-testid="stRadioOption"]';
+  if (document.documentElement.dataset.sfSidebarMotion) return;
+  document.documentElement.dataset.sfSidebarMotion = "true";
+
+  document.addEventListener("pointermove", (event) => {
+    if (event.pointerType !== "mouse") return;
+    const list = event.target.closest(listSelector);
+    if (!list) return;
+
+    for (const row of list.querySelectorAll(rowSelector)) {
+      const rect = row.getBoundingClientRect();
+      const distance = Math.abs(event.clientY - (rect.top + rect.height / 2));
+      const proximity = Math.max(0, 1 - distance / 100);
+      const effect = proximity * proximity * (3 - 2 * proximity);
+      row.style.setProperty("--sf-proximity", effect.toFixed(3));
+    }
+  });
+
+  document.addEventListener("pointerout", (event) => {
+    const list = event.target.closest(listSelector);
+    if (!list || list.contains(event.relatedTarget)) return;
+    for (const row of list.querySelectorAll(rowSelector)) {
+      row.style.removeProperty("--sf-proximity");
+    }
+  });
+})();
+</script>

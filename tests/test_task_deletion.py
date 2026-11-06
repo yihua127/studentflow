@@ -173,6 +173,9 @@ def test_delete_ui_confirms_and_refreshes_counts_selection_and_draft(workspace, 
     checked(app)
     app.session_state["planner_draft"] = {"signature": "stale draft"}
 
+    assert app.selectbox(key="tasks_selected_" + category).value is None
+    app.button(key=f"sf_task_open_{identifier}").click()
+    checked(app)
     assert app.selectbox(key="tasks_selected_" + category).value == identifier
     assert field(app.button, "Delete task").disabled
     field(app.checkbox, "I want to delete this task.").check()
@@ -180,11 +183,16 @@ def test_delete_ui_confirms_and_refreshes_counts_selection_and_draft(workspace, 
     assert not field(app.button, "Delete task").disabled
     field(app.button, "Delete task").click()
     checked(app)
+    assert identifier in {item["id"] for item in workspace.tasks()}
+    field(app.button, "Dispose task").click()
+    checked(app)
 
     assert {item["id"] for item in workspace.tasks()} == {retained_id, other_id}
     assert app.radio(key="tasks_category").value == category
     assert set(app.radio(key="tasks_category").options) == {"Unfinished (1)", "Completed (1)"}
-    assert app.selectbox(key="tasks_selected_" + category).value == retained_id
+    assert app.selectbox(key="tasks_selected_" + category).value is None
+    app.button(key=f"sf_task_open_{retained_id}").click()
+    checked(app)
     assert list(app.dataframe[0].value["Task"]) == ["Keep in category"]
     assert field(app.checkbox, "I want to delete this task.").value is False
     assert field(app.button, "Delete task").disabled
@@ -196,6 +204,8 @@ def test_delete_ui_resets_confirmation_when_selected_task_changes(workspace, cha
     identifier = task(workspace)
     second_id = task(workspace, "Second task")
     app = checked(AppTest.from_string(APP_SOURCE))
+    app.button(key=f"sf_task_open_{identifier}").click()
+    checked(app)
     field(app.checkbox, "I want to delete this task.").check()
     checked(app)
     original_key = field(app.checkbox, "I want to delete this task.").key
@@ -220,13 +230,15 @@ def test_delete_ui_resets_confirmation_when_selected_task_changes(workspace, cha
 
 @pytest.mark.parametrize("category", ["Unfinished", "Completed"])
 def test_delete_ui_last_task_shows_empty_state(workspace, category):
-    task(workspace, completed_minutes=60 if category == "Completed" else 0)
+    identifier = task(workspace, completed_minutes=60 if category == "Completed" else 0)
     app = checked(AppTest.from_string(APP_SOURCE))
     app.radio(key="tasks_category").set_value(category)
     checked(app)
+    app.button(key=f"sf_task_open_{identifier}").click()
+    checked(app)
     field(app.checkbox, "I want to delete this task.").check()
     checked(app)
-    field(app.button, "Delete task").click()
+    field(app.button, "Dispose task").click()
     checked(app)
 
     assert workspace.tasks() == []
