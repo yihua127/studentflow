@@ -22,8 +22,11 @@ def with_fixed_events(preferences: dict, events: list[dict]) -> dict:
 def _task_state(tasks: list[dict]) -> list[dict]:
     fields = ("id", "title", "status", "due_at", "estimated_minutes", "completed_minutes")
     return sorted(
-        [{field: task.get(field, 0 if field == "completed_minutes" else None)
-          for field in fields} for task in tasks],
+        [{**{field: task.get(field, 0 if field == "completed_minutes" else None)
+             for field in fields},
+          # A manual checkoff changes eligibility without changing logged effort.
+          # Missing flags on older records are equivalent to an unchecked task.
+          "marked_complete": task.get("marked_complete") is True} for task in tasks],
         key=lambda item: str(item["id"]),
     )
 

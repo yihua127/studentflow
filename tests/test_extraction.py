@@ -34,6 +34,20 @@ def test_valid_result_still_needs_review():
     assert task["source_quote"] == BODY
 
 
+def test_unzoned_clock_time_with_foreign_offset_is_read_as_singapore_time():
+    task = validate_extraction(proposal(due_at="2026-10-16T17:00:00-05:00"), BODY)["tasks"][0]
+    assert task["due_at"] == "2026-10-16T17:00:00+08:00"
+    assert any("Singapore time" in note for note in task["needs_clarification"])
+
+
+def test_offset_is_kept_when_the_source_names_a_timezone():
+    body = "Please submit the report by 16 October, 17:00 EST. Allow 90 minutes."
+    task = validate_extraction(
+        proposal(due_at="2026-10-16T17:00:00-05:00", source_quote=body), body
+    )["tasks"][0]
+    assert task["due_at"] == "2026-10-16T17:00:00-05:00"
+
+
 @pytest.mark.parametrize("date", ["2026-10-16", "2026-10-16T17:00:00", "tomorrow", "invalid"])
 def test_date_without_reliable_timestamp_is_cleared(date):
     task = validate_extraction(proposal(due_at=date), BODY)["tasks"][0]

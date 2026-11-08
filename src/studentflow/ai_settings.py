@@ -11,9 +11,8 @@ from pathlib import Path
 import dotenv
 import streamlit as st
 
-from studentflow.page_heading import render_page_heading
-
 from studentflow.extraction import extract_tasks
+from studentflow.page_heading import render_page_heading
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 _KEY_PATTERN = re.compile(r"sk-[A-Za-z0-9_-]{10,}")

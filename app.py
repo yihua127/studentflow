@@ -14,8 +14,7 @@ from time import monotonic
 from zoneinfo import ZoneInfo
 
 import streamlit as st
-
-from studentflow.page_heading import render_page_heading
+from streamlit import runtime
 
 from studentflow.ai_settings import DEFAULT_MODEL, read_ai_settings, render_ai_settings
 from studentflow.assistant_ui import _preserve_workspace_inputs, render_assistant
@@ -33,6 +32,7 @@ from studentflow.gmail import GmailAuthError, GmailError, connect
 from studentflow.inbox_triage_ui import clear_triage_state, render_inbox_triage
 from studentflow.inbox_workspace import clear_workspace, render_mail_body, render_mail_list
 from studentflow.overview_ui import render_overview_schedule, unfinished_tasks
+from studentflow.page_heading import render_page_heading
 from studentflow.planning_ui import preserve_planning_inputs, render_planner
 from studentflow.storage import Store
 from studentflow.tasks_ui import preserve_task_inputs, render_tasks
@@ -477,17 +477,34 @@ def open_workspace_messages(identifiers, credential_path, token_path):
 
 
 @st.cache_data(show_spinner=False)
-def welcome_intro(template_modified_at: int) -> str:
+def _welcome_file(filename: str, modified_at: int) -> bytes:
+    return (ROOT / "assets" / "welcome" / filename).read_bytes()
+
+
+def _welcome_image_url(filename: str, mime: str) -> str:
+    path = ROOT / "assets" / "welcome" / filename
+    data = _welcome_file(filename, path.stat().st_mtime_ns)
+    if runtime.exists():
+        # Register on every rerun: Streamlit removes media with no active session reference.
+        # Only the fixed bundled artwork below is exposed, never account or uploaded files.
+        url = runtime.get_instance().media_file_mgr.add(
+            data, mime, f"studentflow.welcome.{filename}"
+        )
+        base_path = st.get_option("server.baseUrlPath").strip("/")
+        return f"/{base_path}{url}" if base_path else url
+    return f"data:{mime};base64,{b64encode(data).decode('ascii')}"
+
+
+def welcome_intro() -> str:
     assets = ROOT / "assets" / "welcome"
-    html = (assets / "intro.html").read_text(encoding="utf-8")
+    html = _welcome_file("intro.html", (assets / "intro.html").stat().st_mtime_ns).decode("utf-8")
     for name, filename, mime in (
         ("MEADOW", "meadow.jpg", "image/jpeg"),
         ("GMAIL_MEADOW", "gmail-meadow.jpg", "image/jpeg"),
         ("BUBBLE", "bubble.png", "image/png"),
         ("USAGI", "usagi.png", "image/png"),
     ):
-        encoded = b64encode((assets / filename).read_bytes()).decode("ascii")
-        html = html.replace("{{" + name + "}}", f"data:{mime};base64,{encoded}")
+        html = html.replace("{{" + name + "}}", _welcome_image_url(filename, mime))
     return html
 
 
@@ -499,14 +516,12 @@ def main():
         initial_sidebar_state="expanded",
     )
     # Show the intro before restoring Gmail or rendering any workspace controls.
-    intro_template = ROOT / "assets" / "welcome" / "intro.html"
-    st.html(welcome_intro(intro_template.stat().st_mtime_ns), unsafe_allow_javascript=True)
+    st.html(welcome_intro(), unsafe_allow_javascript=True)
     # These bundled scripts never interpolate email or user input.
     st.html(ROOT / "assets" / "browser-language.html", unsafe_allow_javascript=True)
     st.set_option("client.toolbarMode", "viewer")
     apply_theme(ROOT)
     st.html(ROOT / "assets" / "sidebar-motion.html", unsafe_allow_javascript=True)
-    st.html(ROOT / "assets" / "workspace-scroll-navigation.html", unsafe_allow_javascript=True)
     st.html(ROOT / "assets" / "overview" / "calendar-page-turn.html", unsafe_allow_javascript=True)
     st.html(ROOT / "assets" / "overview" / "holo-cards.html", unsafe_allow_javascript=True)
     st.html(ROOT / "assets" / "inbox-dock.html", unsafe_allow_javascript=True)

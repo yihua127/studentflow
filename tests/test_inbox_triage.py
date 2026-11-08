@@ -62,10 +62,16 @@ def test_batch_is_bounded_and_results_keep_message_order():
     result = classify([mail(i) for i in range(12)], runner=count_runner,
                       progress=lambda done, _label: progress.append(done))
     assert result["status"] == "completed"
-    assert chunks == [5, 5, 2]
+    assert chunks == [3, 3, 3, 3]
     assert [item["gmail_id"] for item in result["results"]] == [f"abc{i}" for i in range(12)]
-    assert result["usage"]["model_calls"] == 6
+    assert result["usage"]["model_calls"] == 8
     assert progress[-1] == 1.0
+
+
+def test_large_selection_has_no_fixed_cap():
+    result = classify([mail(i) for i in range(31)])
+    assert result["status"] == "completed"
+    assert len(result["results"]) == 31
 
 
 def test_identical_content_keeps_distinct_gmail_messages():
@@ -142,8 +148,6 @@ def test_other_account_and_duplicate_ids_rejected_before_any_processing(tmp_path
     assert store.list(ACCOUNT) == {}
     with pytest.raises(ValueError, match="only once"):
         classify([mail(), mail()], runner=unexpected_call)
-    with pytest.raises(ValueError, match="30"):
-        classify([mail(i) for i in range(31)], runner=unexpected_call)
 
 
 def test_cache_survives_reopening_is_account_scoped_and_whitelists_fields(tmp_path):
@@ -203,10 +207,19 @@ def test_cache_version_invalidates_without_erasing_review(tmp_path, monkeypatch)
     assert new["category"] == "ignore" and new["reviewed"]
 
 
-def test_partial_runner_retains_valid_results_but_does_not_claim_completion():
+def test_partial_runner_with_every_message_verified_is_complete():
     result = classify(runner=lambda _req, box, **_kw: completed(box, status="partial"))
-    assert result["status"] == "partial"
+    assert result["status"] == "completed"
     assert result["results"][0]["status"] == "classified"
+    assert result["warnings"] == []
+
+
+def test_partial_runner_missing_a_message_does_not_claim_completion():
+    result = classify([mail(1), mail(2)],
+                      runner=lambda _req, box, **_kw: completed(box, status="partial", skip=1))
+    assert result["status"] == "partial"
+    assert sorted(item["status"] for item in result["results"]) == ["classified", "unclassified"]
+    assert any("stopped before completing" in warning for warning in result["warnings"])
 
 
 def test_exception_is_sanitized_and_does_not_overwrite_review(tmp_path):

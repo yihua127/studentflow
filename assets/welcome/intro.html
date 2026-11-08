@@ -8,12 +8,12 @@ body:has(> #sf-welcome[open]) [data-testid="stApp"] {
     background: #66a9ef url("{{MEADOW}}") center / cover no-repeat fixed;
   }
   body.sf-workspace-arriving [data-testid="stApp"] {
-    animation: sf-workspace-arrive .72s cubic-bezier(.18, .74, .23, 1) both;
+    animation: sf-workspace-arrive .18s ease-out both;
   }
 }
 @keyframes sf-workspace-arrive {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from { opacity: .4; }
+  to { opacity: 1; }
 }
 
 #sf-welcome {
@@ -40,17 +40,23 @@ body:has(> #sf-welcome[open]) [data-testid="stApp"] {
 
 .sf-welcome-usagi {
   width: clamp(100px, min(20vw, 29vh), 250px);
-  animation: sf-welcome-pop 550ms 650ms both;
+  height: auto;
 }
 
 .sf-welcome-bubble {
   position: relative;
   width: clamp(228px, min(42vw, 62vh), 480px);
   margin-bottom: -2%;
-  animation: sf-welcome-pop 420ms 1350ms both;
 }
 
-.sf-welcome-bubble img { display: block; width: 100%; }
+.sf-welcome-bubble img { display: block; width: 100%; height: auto; }
+.sf-welcome-usagi, .sf-welcome-bubble { opacity: 0; }
+.sf-welcome-art-ready .sf-welcome-usagi {
+  animation: sf-welcome-pop 300ms both;
+}
+.sf-welcome-art-ready .sf-welcome-bubble {
+  animation: sf-welcome-pop 260ms 100ms both;
+}
 .sf-welcome-bubble p {
   position: absolute;
   inset: 11% 15% 26%;
@@ -89,7 +95,10 @@ body:has(> #sf-welcome[open]) [data-testid="stApp"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sf-welcome-usagi, .sf-welcome-bubble { animation: none; }
+  #sf-welcome .sf-welcome-usagi, #sf-welcome .sf-welcome-bubble {
+    animation: none;
+    opacity: 1;
+  }
 }
 body.sf-gmail-onboarding::before {
   content: "";
@@ -191,10 +200,10 @@ body.sf-gmail-onboarding .sf-gmail-exit {
   <dialog id="sf-welcome" aria-label="Welcome to Student Flow">
     <div class="sf-welcome-scene">
       <div class="sf-welcome-bubble">
-        <img src="{{BUBBLE}}" alt="">
+        <img src="{{BUBBLE}}" width="1635" height="962" decoding="async" alt="">
         <p aria-live="polite">Hi! Welcome to Student Flow!</p>
       </div>
-      <img class="sf-welcome-usagi" src="{{USAGI}}" alt="Usagi">
+      <img class="sf-welcome-usagi" src="{{USAGI}}" width="1297" height="1213" decoding="async" alt="Usagi">
     </div>
     <button class="sf-welcome-connect" type="button" hidden>Continue to Gmail</button>
     <button class="sf-welcome-skip" type="button">Skip intro</button>
@@ -210,6 +219,11 @@ body.sf-gmail-onboarding .sf-gmail-exit {
   document.documentElement.style.setProperty("--sf-running-usagi", `url("${usagi.src}")`);
   window[key] = true;
   document.body.append(intro);
+  // Reserve image space and decode before animating, without delaying the controls.
+  Promise.allSettled([...intro.querySelectorAll('img')].map(image => image.decode()))
+    .then(() => requestAnimationFrame(() => {
+      if (intro.isConnected) intro.classList.add('sf-welcome-art-ready');
+    }));
   const connect = intro.querySelector(".sf-welcome-connect");
   let connected = false;
   let readinessObserver;
@@ -224,13 +238,10 @@ body.sf-gmail-onboarding .sf-gmail-exit {
     connect.textContent = connected ? "Enter StudentFlow" : "Continue to Gmail";
     connect.hidden = false;
   };
-  const timer = setTimeout(() => {
-    readinessObserver = new MutationObserver(showNext);
-    readinessObserver.observe(document.body, { childList: true, subtree: true });
-    showNext();
-  }, 4200);
+  readinessObserver = new MutationObserver(showNext);
+  readinessObserver.observe(document.body, { childList: true, subtree: true });
+  showNext();
   intro.addEventListener("close", () => {
-    clearTimeout(timer);
     readinessObserver?.disconnect();
     intro.remove();
   }, { once: true });
@@ -251,7 +262,7 @@ body.sf-gmail-onboarding .sf-gmail-exit {
         window.dispatchEvent(new Event("resize"));
       };
       if (matchMedia("(prefers-reduced-motion: reduce)").matches || !app) finish();
-      else setTimeout(finish, 750);
+      else setTimeout(finish, 200);
     };
 
     let selected = false;

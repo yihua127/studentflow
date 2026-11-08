@@ -27,7 +27,9 @@ CATEGORY_LABELS = {
     "needs_action": "Needs action",
     "ignore": "No action needed",
 }
-CHUNK_SIZE = 5
+# Each email needs a read and a record step; three per run keeps the specialist
+# well inside its turn limit (five could exhaust it before any result was recorded).
+CHUNK_SIZE = 3
 _REQUEST = """Classify every selected Gmail email, using consult_email with operation=triage.
 Read each selected email completely with list_sources/read_source, following pages if needed.
 Record exactly one record_triage item for each selected email, with a short reason and
@@ -342,8 +344,6 @@ def classify_messages(mails: list[dict], account: str, api_key: str, model: str,
     usage = {key: 0 for key in ("model_calls", "tool_calls", "input_tokens", "output_tokens",
                                "total_tokens", "unreported_model_calls")}
     usage["usage_complete"] = True
-    if len(mails) > 30:
-        raise ValueError("Select up to 30 emails for each classification request.")
     if len({mail.get("gmail_id") for mail in mails}) != len(mails):
         raise ValueError("Choose each Gmail message only once.")
     # Validate the entire account scope before any model call or persistence.
@@ -421,13 +421,15 @@ def classify_messages(mails: list[dict], account: str, api_key: str, model: str,
     order = {mail["gmail_id"]: index for index, mail in enumerate(mails)}
     results.sort(key=lambda item: order[item["gmail_id"]])
     classified = sum(item["status"] == "classified" for item in results)
-    if run_incomplete:
-        warnings.append("The assistant stopped before completing every processing step. Review the available categories.")
+    # Every message needs its own verified record; an internal step that stopped
+    # early only matters when it left a message without one.
     if classified < len(results):
+        if run_incomplete:
+            warnings.append("The assistant stopped before completing every processing step. Review the available categories.")
         warnings.append("Some emails remain unclassified. Review their content or retry the selected messages.")
     if progress:
         progress(1.0, "Email categories ready for review.")
-    status = ("completed" if classified == len(results) and not run_incomplete
+    status = ("completed" if classified == len(results)
               else "partial" if classified else "failed")
     return {"status": status, "results": results, "warnings": list(dict.fromkeys(warnings)),
             "events": events, "usage": usage}

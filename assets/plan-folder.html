@@ -11,7 +11,6 @@
     const folder = document.createElement('button');
     folder.type = 'button';
     folder.className = 'sf-plan-folder-toggle';
-    folder.disabled = true;
     folder.style.visibility = 'hidden';
     list.before(folder);
 
@@ -23,26 +22,19 @@
       if (!open) tabs.removeAttribute('data-paper-selected');
     }
 
-    setOpen(false);
+    // Keep the controls usable while the decorative folder arrives.
+    setOpen(true);
     // Wait for the sidebar alignment before measuring the flight.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (!folder.isConnected) return;
       folder.style.visibility = '';
-      const openOnArrival = () => {
-        if (!folder.isConnected) return;
-        folder.disabled = false;
-        setOpen(true);
-      };
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        openOnArrival();
-        return;
-      }
+      if (window.sfPlanFolderArrived || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      window.sfPlanFolderArrived = true;
       const distance = Math.max(0, window.innerHeight - folder.getBoundingClientRect().top);
-      const flight = folder.animate([
+      folder.animate([
         { translate: `0 ${distance}px` },
         { translate: '0 0' },
-      ], { duration: 650, easing: 'cubic-bezier(.2,.75,.25,1)' });
-      flight.onfinish = openOnArrival;
+      ], { duration: 240, easing: 'cubic-bezier(.2,.75,.25,1)' });
     }));
     folder.addEventListener('click', () => {
       const open = !tabs.hasAttribute('data-folder-open');

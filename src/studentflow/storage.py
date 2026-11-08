@@ -13,7 +13,6 @@ from studentflow.effort_review import build_effort_review, validate_effort_revie
 from studentflow.planner import is_completed
 from studentflow.task_dedup import legacy_source_ids, merge_sources, same_task
 
-
 DEADLINE_COLORS = {
     "blue": "#8e9ed8",
     "pink": "#d986ab",

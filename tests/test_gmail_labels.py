@@ -103,6 +103,16 @@ def test_category_creation_is_restricted_and_exact():
     }
 
 
+def test_real_create_response_without_type_is_accepted_but_system_type_is_not():
+    # Gmail's labels.create response omits "type" (labels.list includes it).
+    real = {"id": "Label_2", "name": labels.MANAGED_LABELS["needs_action"],
+            "labelListVisibility": "labelShow", "messageListVisibility": "show"}
+    assert labels.GmailLabelClient(Session([Response(real)])).create_label("needs_action") == "Label_2"
+    system = dict(real, type="system")
+    with pytest.raises(labels.GmailLabelError):
+        labels.GmailLabelClient(Session([Response(system)])).create_label("needs_action")
+
+
 @pytest.mark.parametrize("value", [
     {"id": "different", "labelIds": ["INBOX"]},
     {"id": "abc123", "labelIds": ["DRAFT"]},

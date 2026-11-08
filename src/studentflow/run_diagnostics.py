@@ -5,6 +5,7 @@ from __future__ import annotations
 ERROR_REASONS = {
     "invalid_citation": "A supporting quotation did not exactly match its selected source.",
     "unsupported_owner": "An action owner was not supported by its quotation.",
+    "unexpected_script": "Generated text contained a writing system absent from the request and sources.",
     "invalid_datetime": "A deadline was not a valid date and time with a timezone.",
     "invalid_meeting_detail": "A discussion question or missing-information note was blank.",
     "invalid_question": "A clarification question was blank.",

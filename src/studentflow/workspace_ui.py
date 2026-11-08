@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from studentflow.ui_shell import render_gmail_loader
 from studentflow.assistant_context import source_key
 from studentflow.google_workspace import (
     GoogleWorkspaceAuthError,
@@ -19,6 +18,7 @@ from studentflow.google_workspace import (
     connect_workspace,
     import_workspace_token,
 )
+from studentflow.ui_shell import render_gmail_loader
 
 ZONE = ZoneInfo("Asia/Singapore")
 PREFIX = "sf_workspace_"

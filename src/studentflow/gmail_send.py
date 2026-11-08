@@ -259,7 +259,10 @@ def prepare_reply(read_client, *, source_account: str, source_message_id: str,
     if target != metadata["recipient"]:
         raise GmailSendError("The recipient must match the original email's verified Reply-To or From address.")
     if _subject(subject) != _subject(metadata["original_subject"]):
-        raise GmailSendError("Keep the original subject, with an optional Re: prefix, to reply in this conversation.")
+        raise GmailSendError(
+            "Keep the original subject, with an optional Re: prefix, to reply in this conversation. "
+            "Use Restore original subject above the draft message, then review for sending again."
+        )
     source_fingerprint = _digest(metadata)
     content = [sender, source_message_id, target, subject, body, source_fingerprint]
     return ReplyPreview(sender, target, subject, body, source_message_id,

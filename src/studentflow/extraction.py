@@ -10,13 +10,21 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from datetime import datetime
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from studentflow.attachments import extract_attachment
 
 MAX_BODY_CHARS = 200_000
 MAX_TASKS = 50
+LOCAL_TIMEZONE = ZoneInfo("Asia/Singapore")
+# Explicit zone wording in the source; only then may a deadline keep a foreign offset.
+_TIMEZONE_MENTION = re.compile(
+    r"\b(?:UTC|GMT|SGT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|CET|CEST|JST|KST|HKT|AEST|AEDT)\b"
+    r"|(?i:\b(?:Eastern|Pacific|Central|Mountain) time\b|\btime ?zone\b)",
+)
 MAX_SOURCE_CHARS = 400_000
 REVIEW_NOTICE = "Review all suggestions before saving. AI confidence is an estimate, not a verified accuracy score."
 
@@ -108,6 +116,23 @@ def _aware_iso(value: Any) -> str | None:
         return None
 
 
+def _local_deadline(due_at: str | None, source: str, notes: list[str]) -> str | None:
+    """Read an unzoned clock time as Singapore time, as the prompt requires.
+
+    Models sometimes attach an unrelated offset (for example -05:00) to "11:59 pm".
+    Unless the source itself names a timezone, keep the wall-clock time and use
+    Singapore, so the same deadline from two emails can still be matched.
+    """
+    if due_at is None or _TIMEZONE_MENTION.search(source or ""):
+        return due_at
+    parsed = datetime.fromisoformat(due_at)
+    local_offset = parsed.replace(tzinfo=LOCAL_TIMEZONE).utcoffset()
+    if parsed.utcoffset() == local_offset:
+        return due_at
+    notes.append("The source gives no timezone, so this deadline uses Singapore time.")
+    return parsed.replace(tzinfo=LOCAL_TIMEZONE).isoformat()
+
+
 def _source_quote(quote: Any, source: str) -> str:
     """Restore an exact source span when only whitespace layout differs.
 
@@ -190,6 +215,7 @@ def validate_extraction(payload: Any, body: str, documents: list[dict] | None = 
         document = next((doc for doc in (documents or []) if doc["id"] == attachment_id), None)
         source = body if attachment_id is None else (document or {}).get("text", "")
         quote = _source_quote(quote, source)
+        due_at = _local_deadline(due_at, source, notes)
         valid_quote = bool(quote)
         if not valid_quote:
             quote = ""

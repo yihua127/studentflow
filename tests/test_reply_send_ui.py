@@ -23,6 +23,24 @@ render_reply_send(root, root / "data", {"id":"draft1", "recipient":"teacher@exam
                   subject, body, "report1")
 '''
 
+ARTIFACT_SCRIPT = '''
+import os
+from pathlib import Path
+import streamlit as st
+from studentflow.assistant_ui import _render_artifacts
+root = Path(os.environ["SF_SEND_TEST_ROOT"])
+st.session_state.setdefault("gmail_profile", {"email_address": "student@example.test"})
+st.session_state.setdefault("sf_assistant_subject_report1_draft1", "Edited acknowledgment")
+_render_artifacts(
+    {"reply_drafts": [{"id": "draft1", "source_id": "mail1",
+        "subject": "Generated acknowledgment", "body": "Hello, thank you. ALEX TAN",
+        "recipient": "teacher@example.test"}]},
+    {"mail1": {"provider": "gmail", "account": "student@example.test",
+        "gmail_id": "abc123", "title": "Coursework instructions"}},
+    "report1", root=root, data_dir=root / "data",
+)
+'''
+
 
 def element(elements, label):
     return next(item for item in elements if item.label == label)
@@ -155,4 +173,58 @@ def test_missing_sending_authorization_does_not_open_browser_on_review(ui):
     run(element(app.checkbox, "I have reviewed the recipient and this exact message.").check())
     assert element(app.button, "Send with Gmail").disabled
     assert element(app.button, "Connect Gmail sending")
+    assert not sessions
+
+
+def test_subject_restore_unblocks_preview_and_preserves_edited_body_without_sending(ui):
+    _root, _inbox, calls, sessions = ui
+    app = run(AppTest.from_string(ARTIFACT_SCRIPT))
+    edited_body = "Hello, I have received the instructions. Best, ALEX TAN"
+    run(element(app.text_area, "Draft message").set_value(edited_body))
+    prepare(app)
+    assert any("Keep the original subject" in error.value for error in app.error)
+    assert not [button for button in app.button if button.label == "Send with Gmail"]
+    assert calls == ["read"] and not sessions
+
+    run(element(app.button, "Restore original subject").click())
+    assert element(app.text_input, "Draft subject").value == "Re: Coursework instructions"
+    assert element(app.text_area, "Draft message").value == edited_body
+    assert element(app.text_input, "Reply recipient").value == RECIPIENT
+    assert not [button for button in app.button if button.label == "Send with Gmail"]
+    prepare(app)
+    assert not app.error
+    assert element(app.button, "Send with Gmail").disabled
+    assert not element(app.checkbox, "I have reviewed the recipient and this exact message.").value
+    assert calls == ["read", "read"] and not sessions
+
+
+def test_new_gmail_draft_defaults_to_original_subject_and_can_be_reviewed(ui):
+    _root, _inbox, calls, sessions = ui
+    script = ARTIFACT_SCRIPT.replace(
+        'st.session_state.setdefault("sf_assistant_subject_report1_draft1", "Edited acknowledgment")', "",
+    )
+    app = run(AppTest.from_string(script))
+    assert element(app.text_input, "Draft subject").value == "Re: Coursework instructions"
+    assert not [button for button in app.button if button.label == "Restore original subject"]
+    prepare(app)
+    assert not app.error
+    assert element(app.button, "Send with Gmail").disabled
+    assert calls == ["read"] and not sessions
+
+
+def test_restoring_subject_does_not_restore_an_earlier_send_approval(ui):
+    _root, _inbox, _calls, sessions = ui
+    app = run(AppTest.from_string(ARTIFACT_SCRIPT))
+    run(element(app.button, "Restore original subject").click())
+    prepare(app)
+    run(element(app.checkbox, "I have reviewed the recipient and this exact message.").check())
+    assert not element(app.button, "Send with Gmail").disabled
+
+    run(element(app.text_input, "Draft subject").set_value("Changed after review"))
+    assert not [button for button in app.button if button.label == "Send with Gmail"]
+    run(element(app.button, "Restore original subject").click())
+    assert not [button for button in app.button if button.label == "Send with Gmail"]
+    prepare(app)
+    assert element(app.button, "Send with Gmail").disabled
+    assert not element(app.checkbox, "I have reviewed the recipient and this exact message.").value
     assert not sessions

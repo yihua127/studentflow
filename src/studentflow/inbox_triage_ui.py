@@ -14,13 +14,17 @@ from studentflow.email_label_catalog import LabelCatalog
 from studentflow.email_label_manager_ui import render_label_manager
 from studentflow.gmail import GmailAuthError, GmailError
 from studentflow.gmail_labels import TOKEN_FILENAME, connect_labels
-from studentflow.inbox_triage import CATEGORY_LABELS, InboxTriageStore, classify_messages
+from studentflow.inbox_triage import (
+    CATEGORY_LABELS,
+    CHUNK_SIZE,
+    InboxTriageStore,
+    classify_messages,
+)
 from studentflow.inbox_triage import fetch_classification_messages as fetch_selected_messages
 from studentflow.reply_handoff import queue_reply_handoff
 from studentflow.triage_sync import apply_label_sync, prepare_label_sync
 
 PREFIX = "sf_triage_"
-MAX_SELECTION = 30
 
 
 def _signature(value):
@@ -270,14 +274,15 @@ def render_inbox_triage(
         )
         left, right = st.columns(2)
         left.button(
-            "Select all shown" if len(visible_ids) <= MAX_SELECTION else "Select first 30 shown",
-            key=PREFIX + "all", on_click=_select, args=(visible_ids[:MAX_SELECTION],),
+            "Select all shown",
+            key=PREFIX + "all", on_click=_select, args=(visible_ids,),
         )
         right.button("Clear selection", key=PREFIX + "clear", on_click=_select, args=([],), disabled=not selected)
     elif st.session_state.get(PREFIX + "external_selection") != selected:
         st.session_state.pop(PREFIX + "preview", None)
         st.session_state[PREFIX + "external_selection"] = selected
-    st.caption(f"{len(selected)} message(s) selected. Classify up to {MAX_SELECTION} at a time.")
+    st.caption(f"{len(selected)} message(s) selected. Messages are classified {CHUNK_SIZE} at a "
+               "time, so larger selections take longer.")
     scope = _signature([account, selected, model])
     consent = st.checkbox(
         "Send the selected email text to OpenAI for classification. API usage charges apply.",
@@ -287,7 +292,7 @@ def render_inbox_triage(
         st.info("Add your OpenAI API key in Settings to classify messages.")
     reanalyze = st.checkbox("Classify again", key=PREFIX + "reanalyze", help="Reuse saved results by default. Your reviewed categories are kept.")
     if st.button("Classify selected messages", key=PREFIX + "run", type="primary",
-                 disabled=not (ready and api_key and model and consent and 0 < len(selected) <= MAX_SELECTION)):
+                 disabled=not (ready and api_key and model and consent and selected)):
         st.session_state.pop(PREFIX + "preview", None)
         st.session_state.pop(PREFIX + "sync_result", None)
         progress = st.progress(0.0, text="Opening selected emails...")

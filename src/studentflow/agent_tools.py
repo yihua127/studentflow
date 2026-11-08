@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from studentflow.availability import resolve_availability
 from studentflow.fixed_events import as_busy_events, validate_fixed_events
 from studentflow.planner import is_completed, propose_schedule, validate_schedule
-from studentflow.reply_validation import unresolved_placeholders
+from studentflow.reply_validation import original_reply_subject, unresolved_placeholders
 
 ROLES = ("email", "task", "planning", "meeting")
 MAX_CALLS = 40
@@ -224,6 +225,17 @@ def _aware(value: str) -> datetime:
         raise ToolRejected("invalid_datetime", "Use an ISO timestamp with an explicit timezone offset.") from None
 
 
+def _scripts(text: str) -> set[str]:
+    """Writing systems of the letters in text, e.g. LATIN, CJK, BENGALI."""
+    found = set()
+    for char in text:
+        if char.isalpha():
+            name = unicodedata.name(char, "")
+            if name:
+                found.add(name.split(" ", 1)[0])
+    return found
+
+
 def _json(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False)
 
@@ -246,6 +258,7 @@ class AssistantTools:
                 raise ValueError("Selected tasks need distinct nonempty task IDs.")
             self._tasks[identifier] = task
         self._preferences = data.get("preferences") or {}
+        self._request = data.get("request") if isinstance(data.get("request"), str) else ""
         self._completed = data.get("completed_by_day") or {}
         self._calendar = data.get("calendar_events") or []
         self._fixed_events = data.get("fixed_events") or []
@@ -507,8 +520,21 @@ class AssistantTools:
             if args.recipient.casefold() not in addresses:
                 raise ToolRejected("unknown_recipient", "The recipient is not verified by the selected message metadata. Leave it null for user review.")
         value = args.model_dump() | {"citations": citations, "sent": False}
+        subject_preserved = source.get("provider") == "gmail" and "title" in source
+        if subject_preserved:
+            subject = original_reply_subject(source["title"])
+            if subject is None:
+                raise ToolRejected(
+                    "invalid_subject",
+                    "The selected email's original subject could not be used safely. "
+                    "Open the original email again before preparing a reply; do not invent a new subject.",
+                )
+            value["subject"] = subject
         record = self._artifact("reply_drafts", value)
-        return {"artifact_id": record["id"], "sent": False, "message": "Reply draft recorded for review only."}
+        message = "Reply draft recorded for review only."
+        if subject_preserved:
+            message += " The reply subject was kept from the original email."
+        return {"artifact_id": record["id"], "sent": False, "message": message}
 
     def _reply_clarification(self, args: ReplyClarificationInput) -> dict:
         if args.source_id is not None:
@@ -555,6 +581,7 @@ class AssistantTools:
             value[field] = [item.strip() for item in value[field]]
             if any(not item for item in value[field]):
                 raise ToolRejected("invalid_meeting_detail", "Meeting questions and missing-information notes must not be blank.")
+        self._check_meeting_scripts(args)
         value["citations"] = self._citations(args.citations)
         value["decisions"] = [item.model_dump() | {"citations": self._citations(item.citations)} for item in args.decisions]
         value["action_items"] = []
@@ -569,6 +596,24 @@ class AssistantTools:
             value["action_items"].append(item.model_dump() | {"citations": citations})
         record = self._artifact("meeting_summaries", value)
         return {"artifact_id": record["id"], "tasks_created": False, "sent": False}
+
+    def _check_meeting_scripts(self, args: MeetingSummaryInput) -> None:
+        # A small model occasionally slips a foreign word into an English draft
+        # (for example "Thanks সবাই"). Generated text may only use writing
+        # systems found in the user's request or the selected sources.
+        allowed = {"LATIN"} | _scripts(self._request)
+        for source in self._sources.values():
+            allowed |= _scripts(str(source.get("text") or "")) | _scripts(str(source.get("title") or ""))
+        generated = [args.title, args.summary, args.follow_up or "", *args.agenda,
+                     *args.open_questions, *args.missing_information,
+                     *(item.text for item in args.decisions),
+                     *(item.title for item in args.action_items)]
+        if any(_scripts(text) - allowed for text in generated):
+            raise ToolRejected(
+                "unexpected_script",
+                "Generated text contains words in a language that is not used in the request or the "
+                "selected sources. Rewrite those words in the requested language; keep quotations exact.",
+            )
 
     def _meeting_clarification(self, args: MeetingClarificationInput) -> dict:
         source_ids = sorted(set(args.source_ids))

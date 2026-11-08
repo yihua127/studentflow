@@ -144,7 +144,8 @@ def test_mail_consent_review_task_save_and_disconnect(tmp_path, monkeypatch):
         def close(self):
             pass
 
-    def fake_connect(credentials_path, token_path, interactive=False):
+    def fake_connect(credentials_path, token_path, interactive=False, *, show_login_link=None):
+        assert callable(show_login_link) if interactive else show_login_link is None
         calls.append(("connect", interactive))
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text("{}", encoding="utf-8")
@@ -262,7 +263,8 @@ def connected_inbox(tmp_path, monkeypatch, pages):
         def close(self):
             pass
 
-    def fake_connect(credentials_path, token_path, interactive=False):
+    def fake_connect(credentials_path, token_path, interactive=False, *, show_login_link=None):
+        assert callable(show_login_link) if interactive else show_login_link is None
         state["calls"].append(("connect", interactive))
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text("{}", encoding="utf-8")
@@ -721,7 +723,8 @@ def saved_connection(tmp_path, monkeypatch, *, saved=True, error=None):
         def close(self):
             state["calls"].append(("close",))
 
-    def fake_connect(credentials_path, saved_token_path, interactive=False):
+    def fake_connect(credentials_path, saved_token_path, interactive=False, *, show_login_link=None):
+        assert callable(show_login_link) if interactive else show_login_link is None
         state["calls"].append(("connect", interactive))
         if state["error"]:
             raise state["error"]
@@ -755,7 +758,10 @@ def test_saved_login_restores_once_per_new_browser_without_reading_messages(tmp_
     assert reopened.session_state["gmail_profile"]["email_address"] == "student@example.com"
     assert not find(reopened.button, "Refresh inbox").disabled
     assert find(reopened.button, "Switch account")
-    assert "Gmail connected: student@example.com" in interface_text(reopened)
+    connection = find(reopened.expander, "Gmail connection")
+    assert "Connected as" in {item.value for item in connection.caption}
+    assert "student@example.com" in {item.value for item in connection.text}
+    assert "**Gmail connected**" in {item.value for item in reopened.sidebar.markdown}
 
     # Rerunning the page must not repeat connection/profile requests.
     calls_before = list(state["calls"])

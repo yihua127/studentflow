@@ -10,11 +10,13 @@ from email.message import Message
 from email.parser import BytesParser
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from zoneinfo import ZoneInfo
 
 MAX_EMAIL_BYTES = 20 * 1024 * 1024
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_BODY_CHARS = 200_000
 MAX_PARTS = 200
+LOCAL_TIMEZONE = ZoneInfo("Asia/Singapore")
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg"}
 
 
@@ -153,7 +155,10 @@ def parse_eml_bytes(raw: bytes, source_name: str) -> dict:
             if date.tzinfo is None or date.utcoffset() is None:
                 warnings.append("The sent time has no timezone. Check relative dates before confirming a task.")
             else:
-                sent_at = date.isoformat()
+                # Senders' clients stamp their own zone (Gmail API mail uses US Pacific).
+                # Models resolve "tomorrow" or "11:59 pm" against this anchor alongside
+                # the Singapore default, so give them one consistent local timezone.
+                sent_at = date.astimezone(LOCAL_TIMEZONE).isoformat()
         except (ValueError, TypeError, OverflowError):
             warnings.append("The sent time could not be read. Check relative dates before confirming a task.")
     else:

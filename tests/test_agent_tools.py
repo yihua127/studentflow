@@ -257,6 +257,25 @@ def test_meeting_summary_quotes_and_owners(snapshot):
     assert call(box, "record_meeting_summary", value, role="meeting")["error"]["code"] == "unsupported_owner"
 
 
+def test_meeting_text_cannot_slip_into_an_unrelated_writing_system(snapshot):
+    box = AssistantTools(snapshot)
+    proof = citation("chat-1", "Alex will prepare the slides.")
+    value = {"title": "Project decisions", "summary": "Slides need preparation.", "citations": [proof],
+             "follow_up": "Thanks সবাই. Alex will prepare the slides."}
+    result = call(box, "record_meeting_summary", value, role="meeting")
+    assert result["error"]["code"] == "unexpected_script"
+    assert not box.artifacts.get("meeting_summaries")
+    value["follow_up"] = "Thanks everyone. Alex will prepare the slides."
+    assert call(box, "record_meeting_summary", value, role="meeting")["ok"]
+
+
+def test_meeting_text_may_use_the_language_the_user_asked_in(snapshot):
+    box = AssistantTools(snapshot | {"request": "请用中文总结这次讨论。"})
+    proof = citation("chat-1", "Alex will prepare the slides.")
+    value = {"title": "讨论总结", "summary": "Alex 负责准备幻灯片。", "citations": [proof]}
+    assert call(box, "record_meeting_summary", value, role="meeting")["ok"]
+
+
 def test_verified_academic_dates_and_date_arithmetic(snapshot):
     box = AssistantTools(snapshot)
     assert call(box, "get_academic_dates", {"query": "Reading week"})["available"]

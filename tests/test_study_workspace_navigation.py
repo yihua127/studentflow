@@ -96,6 +96,8 @@ def test_task_browser_returns_to_correct_card_without_retaining_approval(workspa
 def test_task_changed_while_away_uses_latest_revision_and_original_evidence(workspace):
     target = save_task(workspace, "Report revision", "Revision request")
     app = checked(AppTest.from_string(APP))
+    app.button(key=f"sf_task_open_{target}").click()
+    checked(app)
     field(app.text_input, "Task name").set_value("Stale received edit")
     field(app.checkbox, "I have reviewed these task details.").check()
     checked(app)

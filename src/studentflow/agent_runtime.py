@@ -48,7 +48,7 @@ _MEETING_OUTCOME_CATEGORIES = {
 _MEETING_VALIDATION_ERRORS = {
     "invalid_tool_arguments", "invalid_arguments", "invalid_citation", "unsupported_owner",
     "invalid_datetime", "invalid_meeting_detail", "invalid_question", "source_out_of_scope",
-    "input_limit", "output_limit",
+    "input_limit", "output_limit", "unexpected_script",
 }
 
 _COMMON = """

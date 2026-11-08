@@ -13,8 +13,6 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from studentflow.page_heading import render_page_heading
-
 from studentflow.assistant_context import (
     run_metadata,
     select_records,
@@ -30,6 +28,7 @@ from studentflow.meeting_export import (
     meeting_minutes_markdown,
     meeting_minutes_text,
 )
+from studentflow.page_heading import render_page_heading
 from studentflow.planning_ui import read_preferences, schedule_rows
 from studentflow.reply_preferences import (
     DEFAULT_REPLY_REQUEST,
@@ -38,6 +37,7 @@ from studentflow.reply_preferences import (
     read_reply_preferences,
     save_reply_preferences,
 )
+from studentflow.reply_validation import original_reply_subject, reply_subject_matches
 from studentflow.response_display import render_response
 from studentflow.run_diagnostics import diagnostic_events
 from studentflow.source_labels import chronological_sources, source_labels, source_preview_heading
@@ -360,6 +360,10 @@ def _review_study_time(
             st.rerun()
 
 
+def _restore_reply_subject(key: str, subject: str) -> None:
+    st.session_state[key] = subject
+
+
 def _render_artifacts(
     artifacts: dict, sources: dict, report_id: str, store=None, model: str = "", selected_task_ids=None,
     root: Path | None = None, data_dir: Path | None = None,
@@ -376,18 +380,30 @@ def _render_artifacts(
                  "Reason": item["reason"]} for item in triage
             ], hide_index=True, width="stretch")
     for item in artifacts.get("reply_drafts", []):
+        source = sources.get(item.get("source_id"), {})
+        original_subject = (original_reply_subject(source.get("title"))
+                            if source.get("provider") == "gmail" else None)
+        subject_key = f"sf_assistant_subject_{report_id}_{item['id']}"
+        body_key = f"sf_assistant_body_{report_id}_{item['id']}"
+        st.session_state.setdefault(subject_key, original_subject or item["subject"])
+        st.session_state.setdefault(body_key, item["body"])
         with st.container(border=True, key=f"sf_panel_artifact_reply_{report_id}_{item['id']}"):
             st.html('<div class="sf-artifact-eyebrow">READY TO REVIEW</div>')
             st.write("**Reply draft**")
             st.caption("Review the recipient and content before sending this reply.")
             st.text("To: " + (item.get("recipient") or "Recipient needs confirmation"))
             subject = st.text_input(
-                "Draft subject", value=item["subject"],
-                key=f"sf_assistant_subject_{report_id}_{item['id']}",
+                "Draft subject", key=subject_key,
             )
+            if original_subject and not reply_subject_matches(subject, original_subject):
+                st.warning("This subject differs from the original email. Restore it to reply in the same conversation.")
+                st.caption("Original reply subject: " + original_subject)
+                st.button(
+                    "Restore original subject", key=f"sf_restore_reply_subject_{report_id}_{item['id']}",
+                    on_click=_restore_reply_subject, args=(subject_key, original_subject),
+                )
             body = st.text_area(
-                "Draft message", value=item["body"], height=280,
-                key=f"sf_assistant_body_{report_id}_{item['id']}",
+                "Draft message", height=280, key=body_key,
             )
             st.download_button(
                 "Download draft", f"To: {item.get('recipient') or ''}\nSubject: {subject}\n\n{body}",
@@ -398,7 +414,7 @@ def _render_artifacts(
             if root is not None and data_dir is not None:
                 from studentflow.reply_send_ui import render_reply_send
 
-                render_reply_send(root, data_dir, item, sources.get(item.get("source_id"), {}), subject, body, report_id)
+                render_reply_send(root, data_dir, item, source, subject, body, report_id)
             _evidence(item.get("citations", []), sources)
     proposals = artifacts.get("task_proposals", [])
     if proposals:
@@ -851,7 +867,7 @@ def _render_workspace(
             started = time.monotonic()
             try:
                 with st.spinner("Reading the selected information and preparing suggestions..."):
-                    result = run_assistant(request.strip(), AssistantTools(snapshot), api_key=api_key, model=model)
+                    result = run_assistant(request.strip(), AssistantTools(snapshot | {"request": request.strip()}), api_key=api_key, model=model)
                 metadata = run_metadata(result, model, snapshot["now"], time.monotonic() - started)
                 report_id = hashlib.sha256((prefix + signature + snapshot["now"]).encode()).hexdigest()[:12]
                 st.session_state[prefix + "result"] = {

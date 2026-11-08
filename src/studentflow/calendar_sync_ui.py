@@ -28,6 +28,12 @@ def _display_time(value: dict) -> str:
     return datetime.fromisoformat(value["dateTime"]).astimezone(ZONE).strftime("%d %b %Y %H:%M")
 
 
+def _keep_open() -> None:
+    # Notices above this section come and go between reruns, which remounts the
+    # expander collapsed and hides the preview or error the user just requested.
+    st.session_state[PREFIX + "open"] = True
+
+
 def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: list[dict],
                          current_fingerprint: Callable[[], str],
                          saved_plan_is_fresh: Callable[[dict], bool]) -> None:
@@ -36,7 +42,7 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
     Callbacks must reload current local state, not close over cached snapshots.
     The fingerprint must cover saved plan, tasks, preferences and fixed events.
     """
-    with st.expander("Google Calendar sync", expanded=False):
+    with st.expander("Google Calendar sync", expanded=st.session_state.get(PREFIX + "open", False)):
         st.caption(
             "Sync your saved study plan and confirmed fixed events to a separate StudentFlow "
             "calendar. Changes flow from StudentFlow to Google; edits in Google are not imported. "
@@ -55,6 +61,7 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
             return
         if st.button(
             "Connect or change Calendar sync account", key=PREFIX + "connect", width="content",
+            on_click=_keep_open,
         ):
             st.session_state.pop(PREFIX + "preview", None)
             login_link = st.empty()
@@ -84,6 +91,7 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
             st.caption("Calendar sign-in saved. Preview changes to check the connected account.")
         if st.button(
             "Disconnect Calendar sync", key=PREFIX + "disconnect", width="stretch",
+            on_click=_keep_open,
         ):
             try:
                 token_path.unlink(missing_ok=True)
@@ -111,7 +119,8 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
                 "Include saved study sessions", value=bool(plan) and fresh,
                 disabled=not fresh or not plan, key=PREFIX + "include_plan",
             )
-            if st.button("Preview Calendar changes", key=PREFIX + "preview_button", width="stretch"):
+            if st.button("Preview Calendar changes", key=PREFIX + "preview_button", width="stretch",
+                         on_click=_keep_open):
                 st.session_state.pop(PREFIX + "preview", None)
                 with (
                     st.spinner("Checking the StudentFlow calendar..."),
@@ -181,10 +190,11 @@ def render_calendar_sync(store, root: Path, data_dir: Path, *, fixed_events: lis
             review_column, sync_column = st.columns([2, 1], gap="medium", vertical_alignment="center")
             confirmed = review_column.checkbox(
                 "I have reviewed these changes to my StudentFlow calendar.",
-                key=PREFIX + "review_" + preview["signature"],
+                key=PREFIX + "review_" + preview["signature"], on_change=_keep_open,
             )
             if sync_column.button("Sync reviewed changes", disabled=not confirmed, type="primary",
-                                  key=PREFIX + "apply_" + preview["signature"], width="stretch"):
+                                  key=PREFIX + "apply_" + preview["signature"], width="stretch",
+                                  on_click=_keep_open):
                 with (
                     st.spinner("Syncing the reviewed calendar changes..."),
                     closing(connect_workspace(

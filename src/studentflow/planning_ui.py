@@ -19,8 +19,6 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from studentflow.page_heading import render_page_heading
-
 from studentflow.availability import (
     DEFAULT_HORIZON_DAYS,
     normalize_availability,
@@ -28,6 +26,7 @@ from studentflow.availability import (
     resolve_availability,
 )
 from studentflow.availability_ui import render_availability
+from studentflow.page_heading import render_page_heading
 from studentflow.planner import (
     DEFAULT_MEALS,
     PLANNING_POLICY_VERSION,
@@ -176,6 +175,23 @@ def make_draft(tasks: list[dict], preferences: dict, now: str, completed_by_day:
         "validation_errors": validate_schedule(result["blocks"], tasks, slots, events, settings),
         "inputs": {"tasks": tasks, "slots": slots, "busy": events, "settings": settings},
     }
+
+
+def draft_is_current(draft: dict, tasks: list[dict], preferences: dict, now: str) -> bool:
+    """Keep a draft while its inputs are unchanged and none of its sessions has begun.
+
+    The draft was planned from its own start minute. Reviewing it for a few minutes
+    does not change the result unless the day changes or a session would start in
+    the past, so the clock alone must not discard the user's review.
+    """
+    drafted_at = draft.get("inputs", {}).get("settings", {}).get("now")
+    if not isinstance(drafted_at, str) or drafted_at[:10] != now[:10]:
+        return False
+    if draft.get("signature") != planning_signature(tasks, preferences, drafted_at):
+        return False
+    current = datetime.fromisoformat(now)
+    return all(datetime.fromisoformat(block["start"]) >= current
+               for block in draft.get("result", {}).get("blocks", []))
 
 
 def planning_signature(tasks: list[dict], preferences: dict, now: str) -> str:
@@ -619,7 +635,6 @@ def _build_plan(tasks: list[dict], store, preferences: dict) -> None:
     now = (datetime.now(ZONE) + timedelta(minutes=1)).replace(second=0, microsecond=0).isoformat()
     progress = store.progress_by_day()
     slots = resolve_availability(preferences, now)
-    signature = planning_signature(tasks, preferences | {"completed_by_day": progress}, now)
     with st.container(key="sf_plan_builder_actions"):
         left, right = st.columns(2)
         generate = left.button("Generate study plan", disabled=not tasks or not slots,
@@ -636,9 +651,10 @@ def _build_plan(tasks: list[dict], store, preferences: dict) -> None:
     draft = st.session_state.get("planner_draft")
     if not draft:
         return
-    if draft["signature"] != signature:
+    if not draft_is_current(draft, tasks, preferences | {"completed_by_day": progress}, now):
         st.info("Tasks, availability or time have changed. Generate a fresh plan before saving.")
         return
+    signature = draft["signature"]
     result = draft["result"]
     st.markdown("**Proposed schedule**")
     for warning in dict.fromkeys(result["warnings"]):

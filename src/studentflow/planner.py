@@ -235,7 +235,7 @@ def _task_info(task: dict, duplicates: set[str]) -> tuple[str, str, int, datetim
     completed = task.get("completed_minutes", 0)
     if isinstance(completed, bool) or not isinstance(completed, int) or completed < 0:
         return task_id, title, max(0, minutes), None, "Completed study time must be a nonnegative whole number."
-    if minutes > 0 and completed >= minutes:
+    if is_completed(task):
         return task_id, title, 0, None, "This task is already completed."
     minutes = max(0, minutes - completed)
     if not task_id or task_id in duplicates:

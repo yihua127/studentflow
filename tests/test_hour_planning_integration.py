@@ -117,3 +117,17 @@ def test_policy_upgrade_invalidates_calendar_preview_but_keeps_saved_plan(monkey
     assert current != previous
     assert saved_plan_is_fresh(plan, tasks, preferences, [], {}, NOW)
     assert plan == before
+
+
+def test_draft_stays_saveable_while_reviewed_until_a_session_begins():
+    preferences, tasks = fixtures()
+    draft = make_draft(tasks, preferences, NOW, {})
+    first = min(block["start"] for block in draft["result"]["blocks"])
+    assert first == "2030-01-07T13:00:00+08:00"
+    current = planning_ui.draft_is_current
+    assert current(draft, tasks, preferences | {"completed_by_day": {}}, "2030-01-07T12:20:00+08:00")
+    assert not current(draft, tasks, preferences | {"completed_by_day": {}}, "2030-01-07T13:05:00+08:00")
+    assert not current(draft, tasks, preferences | {"completed_by_day": {}}, "2030-01-08T09:00:00+08:00")
+    changed = deepcopy(tasks)
+    changed[0]["estimated_minutes"] = 90
+    assert not current(draft, changed, preferences | {"completed_by_day": {}}, "2030-01-07T12:20:00+08:00")

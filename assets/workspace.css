@@ -2405,8 +2405,8 @@ body:not(.sf-gmail-onboarding) [data-testid="stSidebar"] .st-key-sf_gmail_accoun
 }
 @media (prefers-reduced-motion: no-preference) {
   .sf-heading-letter {
-    animation: sf-heading-rise .68s cubic-bezier(.2, .65, .28, 1) both;
-    animation-delay: calc(var(--sf-letter-index) * 14ms);
+    animation: sf-heading-rise .26s cubic-bezier(.2, .65, .28, 1) both;
+    animation-delay: min(calc(var(--sf-letter-index) * 4ms), 160ms);
     transition: translate .2s ease;
   }
   .sf-heading-letter:hover { translate: 0 -3px; }

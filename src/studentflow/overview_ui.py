@@ -12,8 +12,8 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from studentflow.planning_ui import read_preferences
 from studentflow.planner import is_completed
+from studentflow.planning_ui import read_preferences
 from studentflow.storage import DEADLINE_COLORS
 
 ZONE = ZoneInfo("Asia/Singapore")
@@ -176,23 +176,22 @@ def _render_calendar(items: list[dict], today: date, store) -> None:
             current.button("Today", key="sf_cal_today", on_click=_today, args=(today,), width="stretch")
     with st.container(key="sf_cal_layout"):
         pages, agenda = st.columns([2, 1], gap="small")
-        with pages:
-            with st.container(key=f"sf_cal_book_{month:%Y_%m}"):
-                st.html('<div class="sf-cal-weekdays">' + ''.join(
-                    '<span>' + name + '</span>' for name in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-                ) + '</div>')
-                with st.container(key="sf_cal_grid"):
-                    for week in calendar.Calendar(firstweekday=0).monthdatescalendar(month.year, month.month):
-                        for column, day in zip(st.columns(7, gap="small"), week, strict=True):
-                            entries = items_for_day(items, day)
-                            label = str(day.day) + (" ·" if entries else "")
-                            wrapper = ("sf_cal_today_" if day == today else "sf_cal_cell_") + day.isoformat()
-                            with column, st.container(key=wrapper):
-                                st.button(label, key="sf_cal_day_" + day.isoformat(),
-                                          disabled=day.month != month.month,
-                                          type="primary" if day == selected else "secondary",
-                                          help=f"{day:%d %B %Y} · {len(entries)} item(s)",
-                                          width="stretch", on_click=_select_day, args=(day,))
+        with pages, st.container(key=f"sf_cal_book_{month:%Y_%m}"):
+            st.html('<div class="sf-cal-weekdays">' + ''.join(
+                '<span>' + name + '</span>' for name in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+            ) + '</div>')
+            with st.container(key="sf_cal_grid"):
+                for week in calendar.Calendar(firstweekday=0).monthdatescalendar(month.year, month.month):
+                    for column, day in zip(st.columns(7, gap="small"), week, strict=True):
+                        entries = items_for_day(items, day)
+                        label = str(day.day) + (" ·" if entries else "")
+                        wrapper = ("sf_cal_today_" if day == today else "sf_cal_cell_") + day.isoformat()
+                        with column, st.container(key=wrapper):
+                            st.button(label, key="sf_cal_day_" + day.isoformat(),
+                                      disabled=day.month != month.month,
+                                      type="primary" if day == selected else "secondary",
+                                      help=f"{day:%d %B %Y} · {len(entries)} item(s)",
+                                      width="stretch", on_click=_select_day, args=(day,))
         with agenda, st.container(key="sf_cal_day_details"):
             st.markdown("**" + selected.strftime("%A, %d %B") + "**")
             entries = items_for_day(items, selected)

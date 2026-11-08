@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from html import escape
 import sqlite3
+from html import escape
 
 import streamlit as st
 
-from studentflow.page_heading import render_page_heading
-
 from studentflow.attachment_library import AttachmentLibrary, available_documents, library_id
+from studentflow.page_heading import render_page_heading
 from studentflow.retrieval import build_chunks, search_chunks
 
 STATUS_LABELS = {
@@ -137,15 +136,14 @@ def render_attachments(store, mails: dict) -> None:
                 st.caption("Source message: " + document["message_subject"])
                 if not document["saved"]:
                     st.caption("Saved automatically when tasks are extracted or saved. You can also keep this document now.")
-                if not document["saved"]:
-                    if st.button("Save attachment", key=f"attachment_save_{identifier}"):
-                        try:
-                            library.save_for_message(mails[document["mail_id"]], only_library_id=identifier)
-                        except (OSError, sqlite3.Error):
-                            st.error("This attachment could not be saved. Check that the app's data folder is available and try again.")
-                        else:
-                            st.session_state.attachment_notice = "Attachment saved on this device."
-                            st.rerun()
+                if not document["saved"] and st.button("Save attachment", key=f"attachment_save_{identifier}"):
+                    try:
+                        library.save_for_message(mails[document["mail_id"]], only_library_id=identifier)
+                    except (OSError, sqlite3.Error):
+                        st.error("This attachment could not be saved. Check that the app's data folder is available and try again.")
+                    else:
+                        st.session_state.attachment_notice = "Attachment saved on this device."
+                        st.rerun()
                 content = library.content(identifier) if document["saved"] else opened_content.get(identifier)
                 if content:
                     with st.container(horizontal=True, horizontal_alignment="center"):

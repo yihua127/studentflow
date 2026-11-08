@@ -71,6 +71,14 @@ def test_html_scripts_are_not_body_evidence():
     assert body == "Due Friday & Monday"
 
 
+def test_foreign_sent_time_is_anchored_in_singapore_time():
+    message = email_with_body()
+    message.replace_header("Date", "Sun, 08 Nov 2026 04:48:26 -0800")
+    parsed = parse_eml_bytes(message.as_bytes(), "pacific.eml")
+    # Same instant, expressed in the local zone used to resolve relative deadlines.
+    assert parsed["sent_at"] == "2026-11-08T20:48:26+08:00"
+
+
 def test_missing_timezone_is_not_invented():
     message = email_with_body()
     message.replace_header("Date", "Thu, 08 Oct 2026 10:00:00 -0000")

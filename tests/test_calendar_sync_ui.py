@@ -113,3 +113,12 @@ def test_explicit_connection_is_separate_and_requests_minimal_scopes(tmp_path, m
     assert action == "connect"
     assert callable(options.pop("show_login_link"))
     assert options == {"interactive": True, "required_scopes": CALENDAR_SYNC_SCOPES}
+
+
+def test_section_stays_open_after_preview_so_results_and_errors_are_visible(tmp_path, monkeypatch):
+    setup(tmp_path, monkeypatch)
+    app = AppTest.from_string(APP).run(timeout=30)
+    assert app.expander[0].proto.expanded is False
+    app.button(key="sf_calendar_sync_preview_button").click().run()
+    assert not app.exception
+    assert app.expander[0].proto.expanded is True

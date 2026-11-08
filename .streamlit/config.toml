@@ -1,5 +1,8 @@
 [server]
 fileWatcherType = "poll"
+# The Windows setup keeps a signed Python runtime in local_data/runtime. Without this,
+# Streamlit polls and reloads the whole standard library as if it were app code.
+folderWatchBlacklist = ["**/local_data", "**/data", "**/downloads"]
 
 [theme]
 base = "light"

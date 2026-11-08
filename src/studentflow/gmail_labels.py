@@ -27,6 +27,12 @@ _ID = re.compile(r"[A-Za-z0-9_-]{1,256}\Z")
 _ACCOUNT = re.compile(r"[^\s<>@,;:\"\\]+@[^\s<>@,;:\"\\]+\.[^\s<>@,;:\"\\]+\Z")
 
 
+def _created_user_label(row: dict) -> bool:
+    # Gmail's labels.create response carries id and name but omits "type"; only
+    # labels.list reports it. A present type must still be a user label.
+    return row.get("type", "user") == "user"
+
+
 class GmailLabelError(gmail.GmailError):
     """Safe error without credentials or private response content."""
 
@@ -176,7 +182,7 @@ class GmailLabelClient:
             "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show",
         })
         identifier = row.get("id")
-        if (row.get("name") != name or row.get("type") != "user"
+        if (row.get("name") != name or not _created_user_label(row)
                 or not isinstance(identifier, str) or not _ID.fullmatch(identifier)):
             raise GmailLabelError("Gmail did not confirm the new label. Preview labels again.")
         self._verified_named_ids[name] = identifier
@@ -284,7 +290,7 @@ class GmailLabelClient:
             "messageListVisibility": "show",
         })
         identifier = row.get("id")
-        if (row.get("name") != MANAGED_LABELS[category] or row.get("type") != "user"
+        if (row.get("name") != MANAGED_LABELS[category] or not _created_user_label(row)
                 or not isinstance(identifier, str) or not _ID.fullmatch(identifier)):
             raise GmailLabelError("Gmail did not confirm the new StudentFlow label. Review labels again.")
         self._verified_label_ids[category] = identifier

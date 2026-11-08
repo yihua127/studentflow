@@ -15,7 +15,7 @@ from studentflow.extraction_cache import ExtractionCache, attach_item_ids, sourc
 
 # Fixed appointments now have a separate review; refresh old browser task proposals
 # as well as prompt-hashed source caches. Saved human-reviewed tasks stay unchanged.
-PIPELINE_VERSION = "source-pipeline-v3-fixed-events"
+PIPELINE_VERSION = "source-pipeline-v4-local-deadlines"
 _SOURCE_FAILURE = "This source could not be analyzed. Run extraction again to retry."
 _MISSING_ANCHOR_WARNING = "The sent time is missing or has no valid timezone. Relative dates need manual review."
 
