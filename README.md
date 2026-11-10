@@ -16,39 +16,72 @@ The interface is in English. Original messages, quotations and user-entered cont
 - **Meetings and discussions:** select messages from a Google Chat space, summarize decisions and action items, and prepare agendas and follow-up drafts. Download minutes in Word, TXT or Markdown format.
 - **Attachment library:** retain, search, download and remove saved attachments on your device.
 
-## Getting started
+## Requirements
 
-Requirements:
+| Item | Details |
+| --- | --- |
+| Computer | Windows, macOS or Linux with a web browser; about 1 GB free disk space |
+| Python | 3.12.6 or later, or 3.13 (the project pins 3.13); uv downloads it if missing |
+| [uv](https://docs.astral.sh/uv/) | Installs the exact, locked dependencies |
+| Git | To clone the repository (or download the ZIP from GitHub) |
+| OpenAI API key | With API credit. Default model `gpt-5.6-terra`, chosen by our five-model evaluation; about USD 0.04 per email processed |
+| Google account and Google Cloud project | Free. Needed for Gmail, Google Calendar and Google Chat; each user creates their own OAuth client |
 
-- Python 3.12 (3.12.6 or later) or Python 3.13, plus [uv](https://docs.astral.sh/uv/).
-- A Google account and a desktop OAuth client for the Google integrations you use.
-- An OpenAI API key for AI features; API usage charges apply.
+## Install
 
-From the project folder, create the environment and start the app. On Windows with Python 3.13 installed:
+Open a terminal (PowerShell on Windows, Terminal on macOS) and run:
 
-```powershell
-py -3.13 -m venv .venv
+```bash
+git clone https://github.com/yihua127/studentflow.git
+cd studentflow
 uv sync --locked
+```
+
+If `uv` is not installed, install it first with `pip install uv` or the installer on [docs.astral.sh/uv](https://docs.astral.sh/uv/). `uv sync --locked` creates a `.venv` folder with the exact versions in `uv.lock` (about 2 minutes the first time).
+
+## Add your OpenAI key
+
+- Start the app (below), open **Settings**, paste your key, keep Model ID `gpt-5.6-terra`, select **Save AI settings** and then **Test AI connection**; or
+- copy `.env.example` to `.env` and fill in `OPENAI_API_KEY`. `.env` is ignored by Git.
+
+Help with API credit and keys: [OpenAI setup](docs/OPENAI_SETUP.md).
+
+## Set up Google access (one time, about 10 minutes)
+
+Each user connects their own Google account through their own Google Cloud project. No credentials are stored in this repository.
+
+1. Sign in to the [Google Cloud console](https://console.cloud.google.com/) and create a project named **StudentFlow**.
+2. Under **APIs & Services → Library**, enable **Gmail API**, **Google Calendar API** and **Google Chat API** (Chat is only needed for Discussions).
+3. In **Google Auth Platform**, set Branding (app name StudentFlow, your email), set Audience to **External**, keep it in **Testing** and add your Gmail address under **Test users**.
+4. Under **Data Access**, add these scopes (all start with `https://www.googleapis.com/auth/`):
+   - `gmail.readonly`: read the inbox
+   - `gmail.send`, plus `openid` and `userinfo.email`: send reviewed replies
+   - `gmail.modify`: apply category labels
+   - `calendar.calendarlist.readonly`, `calendar.events.readonly`, `calendar.app.created`: read calendars and sync to a dedicated StudentFlow calendar
+   - `chat.spaces.readonly`, `chat.messages.readonly`: Discussions
+5. Under **Clients**, create a **Desktop app** client, download the JSON file and save it as `credentials/gmail_client.json` in the project folder.
+
+Full guide: [Gmail setup](docs/GMAIL_SETUP.md). In Testing mode, Google asks you to sign in again every 7 days.
+
+## Run
+
+```bash
 uv run --locked streamlit run app.py --server.address 127.0.0.1 --browser.gatherUsageStats false
 ```
 
-Open http://localhost:8501.
+Open http://localhost:8501 and keep the terminal open while you use the app (`Ctrl+C` stops it).
 
-1. Follow the [Gmail setup guide](docs/GMAIL_SETUP.md) to configure Google access and save the OAuth client file as `credentials/gmail_client.json`.
-2. Open **Settings** to save your OpenAI API key, choose a model and test the connection. See [OpenAI setup](docs/OPENAI_SETUP.md).
-3. Connect Gmail from **Inbox (Gmail)**. Connect Google Chat or Calendar when you use those features; sending replies, syncing Calendar and updating Gmail labels require separate authorization.
+Optional on Windows: run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-desktop-shortcut.ps1` once to add a StudentFlow desktop icon (it starts the app with `start.ps1`).
 
-Each user configures and authorizes their own accounts on their computer.
+![First launch after a fresh install](docs/images/first_screen.png)
 
-### Windows desktop shortcut
+### Your first five minutes
 
-Run this once from the project folder:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install-desktop-shortcut.ps1
-```
-
-Then open **StudentFlow** from the desktop. An existing installation can also be started with `start.ps1`.
+1. **Connect Gmail:** in the sidebar, tick the permission box under **Gmail connection**, select **Connect Gmail** and sign in with a test-user account. Then open **Inbox** and select **Refresh inbox**.
+2. **Sort your inbox:** tick a few emails, open **Email categories** and classify them. Review each category and its reason.
+3. **Get tasks:** open **Tasks & events** and analyse the selected emails. Check deadlines and study time, fill anything missing and save. Tasks are planned only after you confirm them.
+4. **Plan:** in **Study plan**, set your available hours and generate a plan. Unscheduled work is listed with a reason. Optionally preview and sync to Google Calendar.
+5. **Reply:** open an email and select **Reply to this email**. Edit the draft; sending needs a separate Gmail permission and explicit confirmation.
 
 ## Using StudentFlow
 
@@ -68,7 +101,7 @@ Open a message in **Inbox → Read email** and choose **Reply to this email**, o
 
 ### Classify email
 
-In **Inbox → Email categories**, select up to 30 loaded messages and allow classification. Review the suggested categories and supporting quotations, edit any category and save locally. Use **Filter by label** to filter the inbox list and **Show category results** to narrow the review table. **Needs reply** takes priority when a message also requests another action; the explanation preserves that action. **No action needed** means informational mail, not deletion or spam.
+In **Inbox → Email categories**, select any number of loaded messages and allow classification; they are classified three at a time, so larger selections take longer. Review the suggested categories and supporting quotations, edit any category and save locally. Use **Filter by label** to filter the inbox list and **Show category results** to narrow the review table. **Needs reply** takes priority when a message also requests another action; the explanation preserves that action. **No action needed** means informational mail, not deletion or spam.
 
 Use **Manage labels** to rename the three categories or create additional labels such as Coursework or Urgent. Under **Message details → Edit labels**, choose a primary category and any custom labels, then **Save label changes**. Custom labels are selected manually; renaming a category does not change its AI classification rule.
 
@@ -94,14 +127,24 @@ StudentFlow uses a coordinator with email, task, planning and meeting specialist
 
 For detailed workflows and setup help, see the [User guide](docs/USER_GUIDE.md). Validation coverage and remaining limitations are documented in [Testing](docs/TESTING.md).
 
-## Development
+## Troubleshooting
 
-Run the offline test suite from the project folder:
+| Problem | What to do |
+| --- | --- |
+| `uv` is not recognized | Install uv (`pip install uv`), then open a new terminal |
+| "Gmail has not been configured" | `credentials/gmail_client.json` is missing or misnamed; redo step 5 of the Google setup |
+| Google says "Access blocked" or the app is unverified | Add your address under **Test users** in your own Cloud project and sign in with that account |
+| Google keeps asking for a passkey | Choose **Try another way** and sign in with your password, or finish sign-in in a normal browser window |
+| AI connection failed | Check the API key, API credit and that the model ID is one your key can use |
+| Port 8501 already in use | Close the other StudentFlow window, or add `--server.port 8502` to the run command |
+| Page stops responding after many clicks | Wait for the running indicator (top right) to stop, or press F5 to reload |
 
-```powershell
+## Development and tests
+
+```bash
 uv run --locked python -m pytest -q
 ```
 
-Tests use synthetic inputs, scripted models and mocked external services. They do not replace live account integration checks.
+Tests use synthetic inputs, scripted models and mocked Google services, so they need no API key or account. Clean-checkout checks on commit `e2f5619` (10 Nov 2026): a fresh clone on Linux with Python 3.13 installed in about 2 minutes and passed 1,676 tests (21 Windows-only tests skipped), and the app started; the full suite on Windows 11 passed 1,697 tests. The live quantitative evaluation (five models, held-out set) is described in our Evaluation report.
 
-Entry point: `app.py`. Application modules: `src/studentflow/`. Tests: `tests/`.
+Entry point: `app.py`. Application modules: `src/studentflow/`. Tests: `tests/`. Guides: `docs/`.
