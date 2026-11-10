@@ -6,11 +6,14 @@ import sqlite3
 from datetime import datetime
 from email.utils import parseaddr, parsedate_to_datetime
 from html import escape
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 
 from studentflow.email_label_catalog import DEFAULT_NAMES, LabelCatalog
 from studentflow.inbox_triage import InboxTriageStore
+
+LOCAL_TIMEZONE = ZoneInfo("Asia/Singapore")
 
 
 def set_selection(identifiers):
@@ -55,6 +58,9 @@ def _short_date(value):
             parsed = parsedate_to_datetime(value)
         except (ValueError, TypeError, IndexError):
             return ""
+    if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+        # Show the student's local (Singapore) date, not the sender's header zone.
+        parsed = parsed.astimezone(LOCAL_TIMEZONE)
     return parsed.strftime("%d %b")
 
 
