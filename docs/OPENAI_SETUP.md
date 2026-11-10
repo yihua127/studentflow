@@ -22,13 +22,13 @@ The [official API quickstart](https://developers.openai.com/api/docs/quickstart)
 
 1. Open **Settings**.
 2. Paste the key into **OpenAI API key**.
-3. Keep **Model ID** as `gpt-5.4-mini` and select **Save AI settings**.
+3. Keep **Model ID** as `gpt-5.6-terra` and select **Save AI settings**.
 4. Select **Test AI connection**. This sends a short built-in example and incurs API usage charges.
 5. A successful check displays **AI connection successful. Task extraction is ready.**
 
 The key is stored in the local `.env` file, which Git ignores. To change the model later, enter the new model ID and save; leaving the key field blank retains the saved key.
 
-[GPT-5.4 Mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini) supports the structured responses used by StudentFlow. Check the model page for current token prices and availability.
+GPT-5.6 Terra is the default because it scored best overall in the Sprint 3 evaluation of five models (see the evaluation report); `gpt-5.6-luna` is a cheaper alternative and `gpt-5.4-mini` remains supported. All three support the structured responses used by StudentFlow. Check OpenAI's model pages for current token prices and availability.
 
 ## 4. Extract tasks
 

@@ -107,7 +107,7 @@ def test_settings_ui_save_reopen_and_explicit_connection_test(tmp_path, monkeypa
     button(app, "Save AI settings").click()
     run(app)
     assert calls == []
-    assert ai_settings.read_ai_settings(tmp_path) == (FAKE_KEY, "gpt-5.4-mini")
+    assert ai_settings.read_ai_settings(tmp_path) == (FAKE_KEY, ai_settings.DEFAULT_MODEL)
     assert app.text_input(key="sf_ai_api_key_input").value == ""
     assert not button(app, "Test AI connection").disabled
     assert not app.warning

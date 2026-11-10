@@ -14,7 +14,7 @@ import streamlit as st
 from studentflow.extraction import extract_tasks
 from studentflow.page_heading import render_page_heading
 
-DEFAULT_MODEL = "gpt-5.4-mini"
+DEFAULT_MODEL = "gpt-5.6-terra"
 _KEY_PATTERN = re.compile(r"sk-[A-Za-z0-9_-]{10,}")
 _MODEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}")
 
@@ -39,7 +39,7 @@ def save_ai_settings(root: Path, api_key: str, model: str) -> None:
     if api_key and not _KEY_PATTERN.fullmatch(api_key):
         raise ValueError("Enter a valid OpenAI API key beginning with sk-.")
     if not _MODEL_PATTERN.fullmatch(model):
-        raise ValueError("Enter a valid model ID, such as gpt-5.4-mini.")
+        raise ValueError("Enter a valid model ID, such as gpt-5.6-terra.")
     root = Path(root)
     saved_key, _ = read_ai_settings(root)
     if not api_key and not saved_key:
@@ -109,7 +109,7 @@ def render_ai_settings(root: Path) -> None:
             )
             entered_model = st.text_input(
                 "Model ID", key="sf_ai_model_input",
-                help="Choose a model with structured output support, such as gpt-5.4-mini.",
+                help="Choose a model with structured output support, such as gpt-5.6-terra.",
             )
             submitted = st.form_submit_button("Save AI settings", type="primary", width="stretch")
         if submitted:
