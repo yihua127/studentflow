@@ -21,7 +21,7 @@ The interface is in English. Original messages, quotations and user-entered cont
 | Item | Details |
 | --- | --- |
 | Computer | Windows, macOS or Linux with a web browser; about 1 GB free disk space |
-| Python | 3.12.6 or later, or 3.13 (the project pins 3.13); uv downloads it if missing |
+| Python | `>=3.12.6,<3.14` (Python 3.12.6+ in the 3.12 series, or any 3.13 release). The project pins 3.13 and uv can download it if needed. |
 | [uv](https://docs.astral.sh/uv/) | Installs the exact, locked dependencies |
 | Git | To clone the repository (or download the ZIP from GitHub) |
 | OpenAI API key | With API credit. Default model `gpt-5.6-terra`, chosen by our five-model evaluation; about USD 0.04 per email processed |
@@ -53,13 +53,13 @@ Each user connects their own Google account through their own Google Cloud proje
 1. Sign in to the [Google Cloud console](https://console.cloud.google.com/) and create a project named **StudentFlow**.
 2. Under **APIs & Services → Library**, enable **Gmail API**, **Google Calendar API** and **Google Chat API** (Chat is only needed for Discussions).
 3. In **Google Auth Platform**, set Branding (app name StudentFlow, your email), set Audience to **External**, keep it in **Testing** and add your Gmail address under **Test users**.
-4. Under **Data Access**, add these scopes (all start with `https://www.googleapis.com/auth/`):
-   - `gmail.readonly`: read the inbox
-   - `gmail.send`, plus `openid` and `userinfo.email`: send reviewed replies
-   - `gmail.modify`: apply category labels
-   - `calendar.calendarlist.readonly`, `calendar.events.readonly`, `calendar.app.created`: read calendars and sync to a dedicated StudentFlow calendar
-   - `chat.spaces.readonly`, `chat.messages.readonly`: Discussions
-5. Under **Clients**, create a **Desktop app** client, download the JSON file and save it as `credentials/gmail_client.json` in the project folder.
+4. Under **Data Access**, add the following scopes for the features you use. Enter the OpenID scope as `openid`.
+   - Read the inbox with `https://www.googleapis.com/auth/gmail.readonly`.
+   - Send reviewed replies with `https://www.googleapis.com/auth/gmail.send`, `openid` and `https://www.googleapis.com/auth/userinfo.email`.
+   - Apply category labels with `https://www.googleapis.com/auth/gmail.modify`.
+   - Read calendars with `https://www.googleapis.com/auth/calendar.calendarlist.readonly` and `https://www.googleapis.com/auth/calendar.events.readonly`. Sync to the dedicated StudentFlow calendar with `https://www.googleapis.com/auth/calendar.app.created`.
+   - Read discussions with `https://www.googleapis.com/auth/chat.spaces.readonly` and `https://www.googleapis.com/auth/chat.messages.readonly`.
+5. Under **Clients**, create a **Desktop app** client and download the JSON file. In the project folder, create the `credentials` directory and save the file as `credentials/gmail_client.json`.
 
 Full guide: [Gmail setup](docs/GMAIL_SETUP.md). In Testing mode, Google asks you to sign in again every 7 days.
 
@@ -71,7 +71,11 @@ uv run --locked streamlit run app.py --server.address 127.0.0.1 --browser.gather
 
 Open http://localhost:8501 and keep the terminal open while you use the app (`Ctrl+C` stops it).
 
-Optional on Windows: run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-desktop-shortcut.ps1` once to add a StudentFlow desktop icon (it starts the app with `start.ps1`).
+On Windows, you can add a StudentFlow desktop shortcut by running this command once from the project folder.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install-desktop-shortcut.ps1
+```
 
 ![First launch after a fresh install](docs/images/first_screen.png)
 
@@ -115,8 +119,8 @@ Email replies and discussions have separate inputs and preferences. **Other assi
 
 ## Data and user control
 
-- Account credentials, tasks, preferences, attachments and saved plans are stored locally. They are excluded from this repository.
-- Loading information from Google does not automatically send it to OpenAI. AI processing requires consent for the selected information; task analysis may also use related saved task details for duplicate checks.
+- Tasks and plans are saved in the local SQLite database at `data/studentflow.sqlite3`. The Google OAuth client is stored in `credentials/gmail_client.json`, sign-in tokens in `data/auth/` and the OpenAI settings in `.env`. Git excludes these local files.
+- Loading email from Google does not send it to OpenAI. When you authorize task analysis, StudentFlow can send the selected emails and their readable attachments to OpenAI. To check for duplicates, it may also send details of related saved tasks.
 - Generated replies, estimates, tasks and summaries require review. Missing dates, owners and event times may need clarification.
 - Sending email, applying Calendar changes and syncing Gmail labels require explicit user confirmation. The assistant does not send messages automatically.
 - Disconnecting a Google account removes its local sign-in; previously saved tasks remain available.
@@ -145,6 +149,6 @@ For detailed workflows and setup help, see the [User guide](docs/USER_GUIDE.md).
 uv run --locked python -m pytest -q
 ```
 
-Tests use synthetic inputs, scripted models and mocked Google services, so they need no API key or account. Clean-checkout checks on commit `e2f5619` (10 Nov 2026): a fresh clone on Linux with Python 3.13 installed in about 2 minutes and passed 1,676 tests (21 Windows-only tests skipped), and the app started; the full suite on Windows 11 passed 1,697 tests. The live quantitative evaluation (five models, held-out set) is described in our Evaluation report.
+Tests use synthetic inputs, scripted models and mocked Google services, so they need no API key or account. On commit `e2f5619` (10 November 2026), a fresh Linux checkout with Python 3.13 installed in about two minutes and the app started. The suite reported 1,676 passed and 21 skipped. Twenty Windows launcher tests require PowerShell on Windows, and one email-ingestion test requires optional local email fixtures. The Windows 11 development machine, which had the fixtures, reported 1,697 passed. The live quantitative evaluation (five models, held-out set) is described in our Evaluation report.
 
 Entry point: `app.py`. Application modules: `src/studentflow/`. Tests: `tests/`. Guides: `docs/`.
